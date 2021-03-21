@@ -13,3 +13,7 @@ object_identifier_index_test_() ->
     , ?_assertEqual({ok,[<<"2">>]}, jqerl:parse(<<".b">>, <<"{\"b\": 2}">>))
     , ?_assertEqual({ok,[<<"2">>]}, jqerl:parse(<<".a.b">>, <<"{\"a\":{\"b\": 2}}">>))
     ].
+
+array_index_test_() ->
+    [ ?_assertEqual({ok,[<<"1">>,<<"2">>,<<"3">>]}, jqerl:parse(<<".b|.[]">>, <<"{\"b\": [1,2,3]}">>))
+    ].

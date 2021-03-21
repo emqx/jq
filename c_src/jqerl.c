@@ -18,6 +18,7 @@ static int process_json(jq_state *jq, jv value,
   int ret = JQ_ERROR_UNKNOWN;
   jq_start(jq, value, flags);
   jv result;
+  ERL_NIF_TERM list0 = enif_make_list(env, 0);
   while (jv_is_valid(result = jq_next(jq))) {
       ret = JQ_OK;
       //jv_dump(result, dumpopts);
@@ -27,9 +28,11 @@ static int process_json(jq_state *jq, jv value,
       ERL_NIF_TERM binterm;
       int binterm_sz = strlen(res_str);
       memcpy(enif_make_new_binary(env, binterm_sz, &binterm), res_str, binterm_sz);
-      *ret_list = enif_make_list_cell(env, binterm, *ret_list);
+      list0 = enif_make_list_cell(env, binterm, list0);
       jv_free(res_jv_str);
   }
+  enif_make_reverse_list(env, list0, ret_list);
+
   if (jv_invalid_has_msg(jv_copy(result))) {
     // Uncaught jq exception
     jv msg = jv_invalid_get_msg(jv_copy(result));

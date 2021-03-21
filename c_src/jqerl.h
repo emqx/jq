@@ -25,12 +25,12 @@ enum {
 
 char* err_tags[] = {
     "ok",
-    "unknown_error",
-    "system_error",
-    "bad_argument",
-    "compile_failed",
-    "parse_error"
-    "process_error"
+    "jq_err_unknown",
+    "jq_err_system",
+    "jq_err_badarg",
+    "jq_err_compile",
+    "jq_err_parse",
+    "jq_err_process"
 };
 
 #endif

@@ -1,6 +1,7 @@
 #include "jqerl.h"
 
 #define MAX_ERR_MSG_LEN 4096
+#define MAX_JQ_FILTER_LEN 4096
 
 char err_msg[MAX_ERR_MSG_LEN];
 
@@ -64,6 +65,7 @@ static ERL_NIF_TERM make_ok_return(ErlNifEnv* env, ERL_NIF_TERM result) {
 
 static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
+    char jv_filter[MAX_JQ_FILTER_LEN] = {0};
     // ----------------------------- init --------------------------------------
     jq_state *jq = NULL;
     int ret = JQ_ERROR_UNKNOWN;
@@ -98,8 +100,13 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     //jv_dump(jv_json_text, dumpopts);
 
     // -------------------------- compile filter -------------------------------
-    jv jv_filter = jv_string_sized((const char*)erl_jq_filter.data, erl_jq_filter.size);
-    if (!jq_compile(jq, jv_string_value(jv_filter))) {
+    if (erl_jq_filter.size >= MAX_JQ_FILTER_LEN) {
+        ret = JQ_ERROR_SYSTEM;
+        strcpy(err_msg, "jq filter is too long");
+        goto out;
+    }
+    strncpy(jv_filter, (const char*)erl_jq_filter.data, erl_jq_filter.size);
+    if (!jq_compile(jq, jv_filter)) {
         ret = JQ_ERROR_COMPILE;
         strcpy(err_msg, "compile jq filter failed");
         goto out;
@@ -108,7 +115,7 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     // ---------------------- process json text --------------------------------
     ERL_NIF_TERM ret_list = enif_make_list(env, 0);
     /*TODO: process_raw(jq, jv_json_text, &result, 0, dumpopts)*/
-    ret = process_json(jq, jv_json_text, env, &ret_list, 0, dumpopts);
+    ret = process_json(jq, jv_copy(jv_json_text), env, &ret_list, 0, dumpopts);
 
 out:// ----------------------------- release -----------------------------------
     switch (ret) {
@@ -118,7 +125,8 @@ out:// ----------------------------- release -----------------------------------
         case JQ_ERROR_SYSTEM:
         case JQ_ERROR_BADARG:
         case JQ_ERROR_COMPILE:
-        case JQ_ERROR_PARSE: {
+        case JQ_ERROR_PARSE:
+        case JQ_ERROR_PROCESS: {
             ret_term = make_error_return(env, ret, err_msg);
             break;
         }
@@ -127,8 +135,8 @@ out:// ----------------------------- release -----------------------------------
             break;
         }
     }
-    jv_free(jv_filter);
     jq_teardown(&jq);
+    jv_free(jv_json_text);
     return ret_term;
 }
 

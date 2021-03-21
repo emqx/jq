@@ -1,25 +1,32 @@
 #include "jqerl.h"
 
+#define MAX_ERR_MSG_LEN 4096
+
+char err_msg[MAX_ERR_MSG_LEN];
+
+static void err_callback(void *data, jv err) {
+    char* err_data = data;
+    if (jv_get_kind(err) != JV_KIND_STRING)
+        err = jv_dump_string(err, JV_PRINT_INVALID);
+    snprintf(err_data, MAX_ERR_MSG_LEN, "%s", jv_string_value(err));
+    jv_free(err);
+}
+
 static int process_json(jq_state *jq, jv value,
-        ErlNifEnv* env, ERL_NIF_TERM ret_list, int flags, int dumpopts) {
+        ErlNifEnv* env, ERL_NIF_TERM *ret_list, int flags, int dumpopts) {
   int ret = JQ_ERROR_UNKNOWN;
   jq_start(jq, value, flags);
   jv result;
   while (jv_is_valid(result = jq_next(jq))) {
       ret = JQ_OK;
-      printf("---process_json---\n");
       //jv_dump(result, dumpopts);
-      jv res_jv_str = jv_dump_string(result, dumpopts);
-      printf("---res_jv_str---:\n");
+      jv res_jv_str = jv_dump_string(jv_copy(result), dumpopts);
       const char* res_str = jv_string_value(res_jv_str);
-      printf("res_str: %s\n", res_str);
 
       ERL_NIF_TERM binterm;
-      int binterm_len = strlen(res_str);
-      unsigned char* binterm_data = enif_make_new_binary(env, binterm_len, &binterm);
-      memcpy(binterm_data, res_str, binterm_len);
-      ret_list = enif_make_list_cell(env, binterm, ret_list);
-      printf("---process_json end---\n");
+      int binterm_sz = strlen(res_str);
+      memcpy(enif_make_new_binary(env, binterm_sz, &binterm), res_str, binterm_sz);
+      *ret_list = enif_make_list_cell(env, binterm, *ret_list);
       jv_free(res_jv_str);
   }
   if (jv_invalid_has_msg(jv_copy(result))) {
@@ -27,14 +34,14 @@ static int process_json(jq_state *jq, jv value,
     jv msg = jv_invalid_get_msg(jv_copy(result));
     jv input_pos = jq_util_input_get_position(jq);
     if (jv_get_kind(msg) == JV_KIND_STRING) {
-      fprintf(stderr, "jq: error (at %s): %s\n",
-              jv_string_value(input_pos), jv_string_value(msg));
+        snprintf(err_msg, MAX_ERR_MSG_LEN, "jq: error (at %s): %s\n",
+            jv_string_value(input_pos), jv_string_value(msg));
     } else {
-      msg = jv_dump_string(msg, 0);
-      fprintf(stderr, "jq: error (at %s) (not a string): %s\n",
-              jv_string_value(input_pos), jv_string_value(msg));
+        msg = jv_dump_string(msg, 0);
+        snprintf(err_msg, MAX_ERR_MSG_LEN, "jq: error (at %s) (not a string): %s\n",
+            jv_string_value(input_pos), jv_string_value(msg));
     }
-    ret = JQ_ERROR_UNKNOWN;
+    ret = JQ_ERROR_PROCESS;
     jv_free(input_pos);
     jv_free(msg);
   }
@@ -42,10 +49,13 @@ static int process_json(jq_state *jq, jv value,
   return ret;
 }
 
-static ERL_NIF_TERM make_error_return(ErlNifEnv* env, int err_no) {
-    const char* err_msg = err_ret[err_no];
+static ERL_NIF_TERM make_error_return(ErlNifEnv* env, int err_no, const char* msg) {
+    const char* err_tag = err_tags[err_no];
+    ERL_NIF_TERM err_msg_term;
+    int binterm_sz = strlen(msg);
+    memcpy(enif_make_new_binary(env, binterm_sz, &err_msg_term), msg, binterm_sz);
     return enif_make_tuple2(env, enif_make_atom(env, "error"),
-        enif_make_atom(env, err_msg));
+             enif_make_tuple2(env, enif_make_atom(env, err_tag), err_msg_term));
 }
 
 static ERL_NIF_TERM make_ok_return(ErlNifEnv* env, ERL_NIF_TERM result) {
@@ -58,49 +68,48 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     jq_state *jq = NULL;
     int ret = JQ_ERROR_UNKNOWN;
     ERL_NIF_TERM ret_term;
-    const char* ret_msg;
+    memset(err_msg, 0, MAX_ERR_MSG_LEN * sizeof(char));
     int dumpopts = 512; // JV_PRINT_SPACE1
     jq = jq_init();
     if (jq == NULL) {
         ret = JQ_ERROR_SYSTEM;
-        ret_msg = "jq_init: malloc error";
+        strcpy(err_msg, "jq_init: malloc error");
         goto out;
     }
+    jq_set_error_cb(jq, err_callback, err_msg);
 
     // --------------------------- read args -----------------------------------
     ErlNifBinary erl_jq_filter, erl_json_text;
     if (!enif_inspect_binary(env, argv[0], &erl_jq_filter) ||
         !enif_inspect_binary(env, argv[1], &erl_json_text)) {
         ret = JQ_ERROR_BADARG;
-        ret_msg = "invalid input or filter";
+        strcpy(err_msg, "invalid input or filter");
         goto out;
 	}
 
     // ------------------------- parse input json -----------------------------
     jv jv_json_text = jv_parse_sized((const char*)erl_json_text.data, erl_json_text.size);
     if (!jv_is_valid(jv_json_text)) {
-        ret = JQ_PARSE_ERROR;
-        ret_msg = jv_string_value(jv_invalid_get_msg(jv_json_text));
+        ret = JQ_ERROR_PARSE;
+        strncpy(err_msg, jv_string_value(jv_invalid_get_msg(jv_copy(jv_json_text))),
+            MAX_ERR_MSG_LEN);
         goto out;
     }
-    printf("----------jv_json_text with dumpopts: %d\n", dumpopts);
-    jv_dump(jv_json_text, dumpopts);
+    //jv_dump(jv_json_text, dumpopts);
 
     // -------------------------- compile filter -------------------------------
-    unsigned char* jq_filter = (unsigned char*) malloc(erl_jq_filter.size + 1);
-    memcpy(jq_filter, (const char*) erl_jq_filter.data, erl_jq_filter.size);
-    jq_filter[erl_jq_filter.size] = '\0';
-    if (!jq_compile(jq, jq_filter)) {
+    jv jv_filter = jv_string_sized((const char*)erl_jq_filter.data, erl_jq_filter.size);
+    if (!jq_compile(jq, jv_string_value(jv_filter))) {
         ret = JQ_ERROR_COMPILE;
-        ret_msg = "compile jq filter failed";
+        strcpy(err_msg, "compile jq filter failed");
         goto out;
     }
 
     // ---------------------- process json text --------------------------------
     ERL_NIF_TERM ret_list = enif_make_list(env, 0);
     /*TODO: process_raw(jq, jv_json_text, &result, 0, dumpopts)*/
-    ret = process_json(jq, jv_json_text, env, ret_list, 0, dumpopts);
-    jv_free(jv_json_text);
+    ret = process_json(jq, jv_json_text, env, &ret_list, 0, dumpopts);
+
 out:// ----------------------------- release -----------------------------------
     switch (ret) {
         default:
@@ -109,9 +118,8 @@ out:// ----------------------------- release -----------------------------------
         case JQ_ERROR_SYSTEM:
         case JQ_ERROR_BADARG:
         case JQ_ERROR_COMPILE:
-        case JQ_PARSE_ERROR: {
-            printf("---------error: %s\n", ret_msg);
-            ret_term = make_error_return(env, ret);
+        case JQ_ERROR_PARSE: {
+            ret_term = make_error_return(env, ret, err_msg);
             break;
         }
         case JQ_OK: {
@@ -119,8 +127,7 @@ out:// ----------------------------- release -----------------------------------
             break;
         }
     }
-
-    free(jq_filter);
+    jv_free(jv_filter);
     jq_teardown(&jq);
     return ret_term;
 }

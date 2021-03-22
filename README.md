@@ -1,4 +1,4 @@
-# jqerl
+# jq
 
 Erlang NIF for [jq](https://github.com/stedolan/jq).
 

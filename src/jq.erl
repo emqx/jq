@@ -1,10 +1,10 @@
--module(jqerl).
+-module(jq).
 
 -export([parse/2]).
 -on_load(init/0).
 
--define(APPNAME, jqerl).
--define(LIBNAME, jqerl).
+-define(APPNAME, jq).
+-define(LIBNAME, jq).
 
 parse(_, _) ->
     not_loaded(?LINE).

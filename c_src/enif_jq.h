@@ -1,5 +1,5 @@
-#ifndef JQERL_H
-#define JQERL_H
+#ifndef ENIFJQ_H
+#define ENIFJQ_H
 
 #include <erl_nif.h>
 #include <stdlib.h>

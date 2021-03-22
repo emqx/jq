@@ -1,4 +1,4 @@
-#include "jqerl.h"
+#include "enif_jq.h"
 
 #define MAX_ERR_MSG_LEN 4096
 #define MAX_JQ_FILTER_LEN 4096
@@ -152,4 +152,4 @@ int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data, ERL_NIF_TERM
 	return 0;
 }
 
-ERL_NIF_INIT(jqerl, nif_funcs, NULL, NULL, upgrade, NULL)
+ERL_NIF_INIT(jq, nif_funcs, NULL, NULL, upgrade, NULL)

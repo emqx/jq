@@ -1,10 +1,15 @@
 -module(jq_tests).
 -include_lib("eunit/include/eunit.hrl").
 
-process_error_test_() ->
+parse_error_test_() ->
     [ ?_assertMatch({error, {jq_err_parse, _}}, jq:parse(<<".">>, <<"{\"b\": }">>))
     , ?_assertMatch({error, {jq_err_parse, _}}, jq:parse(<<".">>, <<"{\"b\"- 2}">>))
     , ?_assertMatch({error, {jq_err_parse, _}}, jq:parse(<<".">>, <<"{\"b\"- 2}">>))
+    ].
+
+process_error_test_() ->
+    [ ?_assertMatch({error, {jq_err_process, _}}, jq:parse(<<".[1]">>, <<"{}">>))
+    , ?_assertMatch({error, {jq_err_process, _}}, jq:parse(<<".a">>, <<"[1,2]">>))
     ].
 
 object_identifier_index_test_() ->

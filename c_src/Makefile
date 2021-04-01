@@ -5,13 +5,15 @@ BASEDIR := $(abspath $(CURDIR)/..)
 
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
+JQC := $(CURDIR)/../jqc
+jqcurl = https://github.com/terry-xiaoyu/jqc.git
 
 ERTS_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts/erts-~ts/include/\", [code:root_dir(), erlang:system_info(version)]).")
 ERL_INTERFACE_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, include)]).")
-JQ_INCLUDE_DIR ?= /usr/local/include
+JQ_INCLUDE_DIR ?= $(JQC)/src
 
 ERL_INTERFACE_LIB_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, lib)]).")
-JQ_LIB_DIR ?= /usr/local/lib
+JQ_LIB_DIR ?= $(JQC)/.libs
 
 C_SRC_DIR = $(CURDIR)
 C_SRC_OUTPUT ?= $(CURDIR)/../priv/$(PROJECT).so
@@ -57,7 +59,7 @@ OBJECTS = $(addsuffix .o, $(basename $(SOURCES)))
 COMPILE_C = $(c_verbose) $(CC) $(CFLAGS) $(CPPFLAGS) -c
 COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
 
-$(C_SRC_OUTPUT): $(OBJECTS)
+$(C_SRC_OUTPUT): $(OBJECTS) $(JQC)
 	@mkdir -p $(BASEDIR)/priv/
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 
@@ -72,6 +74,16 @@ $(C_SRC_OUTPUT): $(OBJECTS)
 
 %.o: %.cpp
 	$(COMPILE_CPP) $(OUTPUT_OPTION) $<
+
+$(JQC):
+	git clone -b jq-1.6-emqx --single-branch $(jqcurl) $(JQC) && \
+	pushd $(JQC) && \
+	git submodule update --init && \
+	autoreconf -fi && \
+	./configure --with-oniguruma=builtin && \
+	pushd modules/oniguruma/ && make && popd && \
+	make src/builtin.inc && make libjq.la && \
+	popd
 
 clean:
 	@rm -f $(C_SRC_OUTPUT) $(OBJECTS)

@@ -5,15 +5,16 @@ BASEDIR := $(abspath $(CURDIR)/..)
 
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
-JQC := $(CURDIR)/../jqc
+JQCDIR = $(CURDIR)/../jqc
+JQC = $(JQCDIR)/src/jv.c
 jqcurl = https://github.com/terry-xiaoyu/jqc.git
 
 ERTS_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts/erts-~ts/include/\", [code:root_dir(), erlang:system_info(version)]).")
 ERL_INTERFACE_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, include)]).")
-JQ_INCLUDE_DIR ?= $(JQC)/src
+JQ_INCLUDE_DIR ?= $(JQCDIR)/src
 
 ERL_INTERFACE_LIB_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, lib)]).")
-JQ_LIB_DIR ?= $(JQC)/.libs
+JQ_LIB_DIR ?= $(JQCDIR)/.libs
 
 C_SRC_DIR = $(CURDIR)
 C_SRC_OUTPUT ?= $(CURDIR)/../priv/$(PROJECT).so
@@ -54,12 +55,12 @@ link_verbose_0 = @echo " LD    " $(@F);
 link_verbose = $(link_verbose_$(V))
 
 SOURCES := $(shell find $(C_SRC_DIR) -type f \( -name "*.c" -o -name "*.C" -o -name "*.cc" -o -name "*.cpp" \))
-OBJECTS = $(addsuffix .o, $(basename $(SOURCES)))
+OBJECTS = $(addsuffix .o, $(basename $(SOURCES))) $(JQC)
 
 COMPILE_C = $(c_verbose) $(CC) $(CFLAGS) $(CPPFLAGS) -c
 COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
 
-$(C_SRC_OUTPUT): $(OBJECTS) $(JQC)
+$(C_SRC_OUTPUT): $(OBJECTS)
 	@mkdir -p $(BASEDIR)/priv/
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 
@@ -76,8 +77,8 @@ $(C_SRC_OUTPUT): $(OBJECTS) $(JQC)
 	$(COMPILE_CPP) $(OUTPUT_OPTION) $<
 
 $(JQC):
-	git clone -b jq-1.6-emqx --single-branch $(jqcurl) $(JQC) && \
-	pushd $(JQC) && \
+	git clone -b jq-1.6-emqx --single-branch $(jqcurl) $(JQCDIR) && \
+	pushd $(JQCDIR) && \
 	git submodule update --init && \
 	autoreconf -fi && \
 	./configure --with-oniguruma=builtin && \

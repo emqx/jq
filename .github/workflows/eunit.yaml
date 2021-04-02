@@ -14,7 +14,7 @@ jobs:
       matrix:
         erl_otp:
         - erl23.2.7
-        - erl22.3.4.13
+        #- erl22.3.4.13
         os:
         - ubuntu20.04
         - ubuntu18.04
@@ -22,10 +22,11 @@ jobs:
         - debian10
         - debian9
         - centos8
-        #- centos7
+        - centos7
 
     container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v2
+    - run: ${GITHUB_WORKSPACE}/rebar3 compile
     - run: ${GITHUB_WORKSPACE}/rebar3 eunit

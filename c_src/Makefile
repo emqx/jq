@@ -81,13 +81,13 @@ $(JQSRC):
 	git clone -b jq-1.6-emqx --single-branch $(JQURL) $(JQSRCDIR)
 
 $(LIBJQ_NAME): $(JQSRC)
-	pushd $(JQSRCDIR) && \
+	cd $(JQSRCDIR) && \
 	git submodule update --init && \
 	autoreconf -fi && \
 	./configure --with-oniguruma=builtin && \
-	pushd modules/oniguruma/ && make && popd && \
+	make -C modules/oniguruma/ && \
 	make src/builtin.inc && make libjq.la && \
-	popd
+	cd $(C_SRC_DIR)
 
 clean:
 	@rm -f $(C_SRC_OUTPUT) $(OBJECTS)

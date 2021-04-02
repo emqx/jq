@@ -22,10 +22,10 @@ jobs:
         - debian10
         - debian9
         - centos8
-        - centos7
+        #- centos7
 
     container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
 
     steps:
     - uses: actions/checkout@v2
-    - run: rebar3 eunit
+    - run: ${GITHUB_WORKSPACE}/rebar3 eunit

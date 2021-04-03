@@ -10,9 +10,16 @@ JQSRC_DIR := $(CURDIR)/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
 LIBJQ_PREFIX = /usr/local
-LIBJQ = libjq.1.dylib
+
+ifeq ($(UNAME_SYS), Darwin)
+	LIBJQ = libjq.dylib
+	LIBONIG = libonig.dylib
+else
+	LIBJQ = libjq.so
+	LIBONIG = libonig.so
+endif
+
 LIBJQ_NAME = $(LIBJQ_DIR)/$(LIBJQ)
-LIBONIG = libonig.4.dylib
 
 ERTS_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts/erts-~ts/include/\", [code:root_dir(), erlang:system_info(version)]).")
 ERL_INTERFACE_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, include)]).")
@@ -103,7 +110,7 @@ $(LIBJQ_NAME): $(JQSRC)
 	./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \
 	make -C modules/oniguruma/ && \
 	make src/builtin.inc && make libjq.la && \
-	ls .libs/ modules/oniguruma/src/.libs/ && \
+	ls -lart .libs/ modules/oniguruma/src/.libs/ && \
 	cp .libs/$(LIBJQ) $(PRIV_DIR) && \
 	cp modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR) && \
 	cd $(C_SRC_DIR)

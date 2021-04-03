@@ -5,17 +5,17 @@ BASEDIR := $(abspath $(CURDIR)/..)
 
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
-JQSRCDIR := $(CURDIR)/jqc
-JQSRC := $(JQSRCDIR)/src/jv.c
+JQSRC_DIR := $(CURDIR)/jqc
+JQSRC := $(JQSRC_DIR)/src/jv.c
 JQURL = https://github.com/terry-xiaoyu/jqc.git
 
 ERTS_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts/erts-~ts/include/\", [code:root_dir(), erlang:system_info(version)]).")
 ERL_INTERFACE_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, include)]).")
-JQ_INCLUDE_DIR ?= $(JQSRCDIR)/src
+JQ_INCLUDE_DIR ?= $(JQSRC_DIR)/src
 
 ERL_INTERFACE_LIB_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, lib)]).")
-JQ_LIB_DIR ?= $(JQSRCDIR)/.libs
-LIBJQ_NAME = $(JQ_LIB_DIR)/libjq.a
+LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
+LIBJQ_NAME = $(LIBJQ_DIR)/libjq.a
 
 C_SRC_DIR = $(CURDIR)
 C_SRC_OUTPUT ?= $(CURDIR)/../priv/$(PROJECT).so
@@ -41,7 +41,7 @@ endif
 CFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 CXXFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 
-LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(JQ_LIB_DIR) -lei -ljq
+LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(LIBJQ_DIR) -lei -ljq
 LDFLAGS += -shared
 
 # Verbosity.
@@ -78,10 +78,10 @@ $(C_SRC_OUTPUT): $(OBJECTS)
 	$(COMPILE_CPP) $(OUTPUT_OPTION) $<
 
 $(JQSRC):
-	git clone -b jq-1.6-emqx --single-branch $(JQURL) $(JQSRCDIR)
+	git clone -b jq-1.6-emqx --single-branch $(JQURL) $(JQSRC_DIR)
 
 $(LIBJQ_NAME): $(JQSRC)
-	cd $(JQSRCDIR) && \
+	cd $(JQSRC_DIR) && \
 	git submodule update --init && \
 	autoreconf -fi && \
 	./configure --with-oniguruma=builtin && \
@@ -91,3 +91,4 @@ $(LIBJQ_NAME): $(JQSRC)
 
 clean:
 	@rm -f $(C_SRC_OUTPUT) $(OBJECTS)
+	@rm -rf $(JQSRC_DIR)/libjq.la $(LIBJQ_DIR)

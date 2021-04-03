@@ -14,7 +14,7 @@ erl_crash.dump
 logs
 _build
 .idea
-.so
+*.so
 *.iml
 rebar3.crashdump
 *~

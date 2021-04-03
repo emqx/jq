@@ -28,5 +28,4 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
-    - run: ${GITHUB_WORKSPACE}/rebar3 compile
     - run: ${GITHUB_WORKSPACE}/rebar3 eunit

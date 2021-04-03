@@ -1,25 +1,26 @@
 # Based on c_src.mk from erlang.mk by Loic Hoguin <essen@ninenines.eu>
-
+UNAME_SYS := $(shell uname -s)
 CURDIR := $(shell pwd)
 BASEDIR := $(abspath $(CURDIR)/..)
 
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
-JQURL = https://github.com/terry-xiaoyu/jqc.git
+JQURL := https://github.com/terry-xiaoyu/jqc.git
 JQSRC_DIR := $(CURDIR)/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
-LIBJQ_PREFIX = /usr/local
+LIBJQ_PREFIX := /usr/local
+EXT_LIBS := $(CURDIR)/ext_libs
 
 ifeq ($(UNAME_SYS), Darwin)
-	LIBJQ = libjq.dylib
-	LIBONIG = libonig.dylib
+	LIBJQ := libjq.1.dylib
+	LIBONIG := libonig.4.dylib
 else
-	LIBJQ = libjq.so
-	LIBONIG = libonig.so
+	LIBJQ := libjq.so
+	LIBONIG := libonig.so
 endif
 
-LIBJQ_NAME = $(LIBJQ_DIR)/$(LIBJQ)
+LIBJQ_NAME := $(LIBJQ_DIR)/$(LIBJQ)
 
 ERTS_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts/erts-~ts/include/\", [code:root_dir(), erlang:system_info(version)]).")
 ERL_INTERFACE_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, include)]).")
@@ -33,7 +34,6 @@ C_SRC_OUTPUT ?= $(PRIV_DIR)/$(PROJECT).so
 
 # System type and C compiler/flags.
 
-UNAME_SYS := $(shell uname -s)
 ifeq ($(UNAME_SYS), Darwin)
 	CC ?= cc
 	CFLAGS ?= -O3 -std=c99 -arch x86_64 -finline-functions -Wall -Wmissing-prototypes
@@ -53,8 +53,7 @@ endif
 
 CFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 CXXFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
-
-LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(LIBJQ_DIR) -lei -ljq
+LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei -ljq
 LDFLAGS += -shared
 
 # Verbosity.
@@ -104,19 +103,23 @@ $(JQSRC):
 	git clone -b jq-1.6-emqx --single-branch $(JQURL) $(JQSRC_DIR)
 
 $(LIBJQ_NAME): $(JQSRC)
+	#ls -lart .libs/ modules/oniguruma/src/.libs/
 	cd $(JQSRC_DIR) && \
 	git submodule update --init && \
 	autoreconf -fi && \
 	./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \
 	make -C modules/oniguruma/ && \
 	make src/builtin.inc && make libjq.la && \
-	ls -lart .libs/ modules/oniguruma/src/.libs/ && \
-	cp .libs/$(LIBJQ) $(PRIV_DIR) && \
-	cp modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR) && \
+	cp .libs/$(LIBJQ) $(PRIV_DIR)/ && \
+	cp modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/ && \
+	mkdir $(EXT_LIBS) && \
+	cp .libs/libjq.* $(EXT_LIBS)/ && \
+	cp modules/oniguruma/src/.libs/libonig.* $(EXT_LIBS)/ && \
 	cd $(C_SRC_DIR)
 
 clean:
 	@rm -f $(OBJECTS)
 	@rm -f $(PRIV_DIR)/*
+	@rm -rf $(EXT_LIBS)
 	@rm -rf $(JQSRC_DIR)/libjq.la $(LIBJQ_DIR)
 

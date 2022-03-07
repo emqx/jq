@@ -10,6 +10,7 @@ JQSRC_DIR := $(CURDIR)/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
 LIBJQ_PREFIX := /usr/local
+EXT_LIBS := $(CURDIR)/ext_libs
 
 ifeq ($(UNAME_SYS), Darwin)
 	LIBJQ := libjq.1.dylib
@@ -52,7 +53,7 @@ endif
 
 CFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 CXXFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
-LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(PRIV_DIR) -lei -ljq
+LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei -ljq
 LDFLAGS += -shared
 
 # Verbosity.
@@ -102,19 +103,23 @@ $(JQSRC):
 	git clone -b jq-1.6-emqx --single-branch $(JQURL) $(JQSRC_DIR)
 
 $(LIBJQ_NAME): $(JQSRC)
+	#ls -lart .libs/ modules/oniguruma/src/.libs/
 	cd $(JQSRC_DIR) && \
 	git submodule update --init && \
 	autoreconf -fi && \
 	./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \
 	make -C modules/oniguruma/ && \
 	make src/builtin.inc && make libjq.la && \
-	ls -lart .libs/ modules/oniguruma/src/.libs/ && \
 	cp .libs/$(LIBJQ) $(PRIV_DIR)/ && \
 	cp modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/ && \
+	mkdir $(EXT_LIBS) && \
+	cp .libs/libjq.* $(EXT_LIBS)/ && \
+	cp modules/oniguruma/src/.libs/libonig.* $(EXT_LIBS)/ && \
 	cd $(C_SRC_DIR)
 
 clean:
 	@rm -f $(OBJECTS)
 	@rm -f $(PRIV_DIR)/*
+	@rm -rf $(EXT_LIBS)
 	@rm -rf $(JQSRC_DIR)/libjq.la $(LIBJQ_DIR)
 

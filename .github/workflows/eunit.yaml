@@ -1,0 +1,31 @@
+name: Test
+
+on:
+  - push
+  - pull_request
+  - workflow_dispatch
+
+jobs:
+  build:
+    runs-on: ubuntu-20.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        erl_otp:
+        - erl23.2.7
+        #- erl22.3.4.13
+        os:
+        - ubuntu20.04
+        - ubuntu18.04
+        - ubuntu16.04
+        - debian10
+        - debian9
+        - centos8
+        - centos7
+
+    container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v2
+    - run: ${GITHUB_WORKSPACE}/rebar3 eunit

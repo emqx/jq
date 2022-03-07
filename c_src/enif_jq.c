@@ -36,17 +36,14 @@ static int process_json(jq_state *jq, jv value,
   if (jv_invalid_has_msg(jv_copy(result))) {
     // Uncaught jq exception
     jv msg = jv_invalid_get_msg(jv_copy(result));
-    jv input_pos = jq_util_input_get_position(jq);
     if (jv_get_kind(msg) == JV_KIND_STRING) {
-        snprintf(err_msg, MAX_ERR_MSG_LEN, "jq: error (at %s): %s\n",
-            jv_string_value(input_pos), jv_string_value(msg));
+        snprintf(err_msg, MAX_ERR_MSG_LEN, "jq error: %s\n", jv_string_value(msg));
     } else {
         msg = jv_dump_string(msg, 0);
-        snprintf(err_msg, MAX_ERR_MSG_LEN, "jq: error (at %s) (not a string): %s\n",
-            jv_string_value(input_pos), jv_string_value(msg));
+        snprintf(err_msg, MAX_ERR_MSG_LEN, "jq error (not a string): %s\n",
+            jv_string_value(msg));
     }
     ret = JQ_ERROR_PROCESS;
-    jv_free(input_pos);
     jv_free(msg);
   }
   jv_free(result);

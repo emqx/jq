@@ -53,7 +53,7 @@ endif
 
 CFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 CXXFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
-LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei -ljq
+LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei -l:libjq.a -l:libonig.a
 LDFLAGS += -shared
 
 # Verbosity.
@@ -106,10 +106,10 @@ $(LIBJQ_NAME): $(JQSRC)
 	#ls -lart .libs/ modules/oniguruma/src/.libs/
 	cd $(JQSRC_DIR) && \
 	git submodule update --init && \
-	autoreconf -fi && \
-	./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \
-	make -C modules/oniguruma/ && \
-	make src/builtin.inc && make libjq.la && \
+	CFLAGS=-fPIC autoreconf -fi && \
+	CFLAGS=-fPIC ./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \
+	CFLAGS=-fPIC make -C modules/oniguruma/ && \
+	CFLAGS=-fPIC make src/builtin.inc && CFLAGS=-fPIC make libjq.la && \
 	cp .libs/$(LIBJQ) $(PRIV_DIR)/ && \
 	cp modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/ && \
 	mkdir $(EXT_LIBS) && \

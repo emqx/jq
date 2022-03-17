@@ -93,7 +93,9 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     jv jv_json_text = jv_parse_sized((const char*)erl_json_text.data, erl_json_text.size);
     if (!jv_is_valid(jv_json_text)) {
         ret = JQ_ERROR_PARSE;
-        strncpy(err_msg, jv_string_value(jv_invalid_get_msg(jv_copy(jv_json_text))),
+        // jv_invalid_get_msg destroys input jv object and returns new jv object
+        jv_json_text = jv_invalid_get_msg(jv_json_text);
+        strncpy(err_msg, jv_string_value(jv_json_text),
             MAX_ERR_MSG_LEN);
         goto out;
     }
@@ -136,7 +138,12 @@ out:// ----------------------------- release -----------------------------------
         }
     }
     jq_teardown(&jq);
-    jv_free(jv_json_text);
+    // jq_next sometimes frees the input json and sometimes not so it is difficult
+    // to keep track of how many copies (ref cnt inc) we have made.S
+    int ref_cnt = jv_get_refcnt(jv_json_text);
+    for(int i = 0; i < ref_cnt; i++) { 
+        jv_free(jv_json_text);
+    }
     return ret_term;
 }
 

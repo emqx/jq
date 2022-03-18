@@ -96,8 +96,7 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
         ret = JQ_ERROR_PARSE;
         // jv_invalid_get_msg destroys input jv object and returns new jv object
         jv_json_text = jv_invalid_get_msg(jv_json_text);
-        strncpy(err_msg, jv_string_value(jv_json_text),
-            MAX_ERR_MSG_LEN);
+        strncpy(err_msg, jv_string_value(jv_json_text), MAX_ERR_MSG_LEN -1);
         goto out;
     }
     //jv_dump(jv_json_text, dumpopts);

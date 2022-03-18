@@ -3,7 +3,6 @@
 #define MAX_ERR_MSG_LEN 4096
 #define MAX_JQ_FILTER_LEN 4096
 
-char err_msg[MAX_ERR_MSG_LEN];
 
 static void err_callback(void *data, jv err) {
     char* err_data = data;
@@ -14,7 +13,8 @@ static void err_callback(void *data, jv err) {
 }
 
 static int process_json(jq_state *jq, jv value,
-        ErlNifEnv* env, ERL_NIF_TERM *ret_list, int flags, int dumpopts) {
+        ErlNifEnv* env, ERL_NIF_TERM *ret_list, int flags, int dumpopts,
+        char err_msg[MAX_ERR_MSG_LEN]) {
   int ret = JQ_ERROR_UNKNOWN;
   jq_start(jq, value, flags);
   jv result;
@@ -65,6 +65,7 @@ static ERL_NIF_TERM make_ok_return(ErlNifEnv* env, ERL_NIF_TERM result) {
 
 static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
+    char err_msg[MAX_ERR_MSG_LEN];
     char jv_filter[MAX_JQ_FILTER_LEN] = {0};
     // ----------------------------- init --------------------------------------
     jq_state *jq = NULL;
@@ -117,7 +118,7 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     // ---------------------- process json text --------------------------------
     ERL_NIF_TERM ret_list = enif_make_list(env, 0);
     /*TODO: process_raw(jq, jv_json_text, &result, 0, dumpopts)*/
-    ret = process_json(jq, jv_copy(jv_json_text), env, &ret_list, 0, dumpopts);
+    ret = process_json(jq, jv_copy(jv_json_text), env, &ret_list, 0, dumpopts, err_msg);
 
 out:// ----------------------------- release -----------------------------------
     switch (ret) {

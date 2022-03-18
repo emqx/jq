@@ -139,7 +139,7 @@ out:// ----------------------------- release -----------------------------------
     }
     jq_teardown(&jq);
     // jq_next sometimes frees the input json and sometimes not so it is difficult
-    // to keep track of how many copies (ref cnt inc) we have made.S
+    // to keep track of how many copies (ref cnt inc) we have made.
     int ref_cnt = jv_get_refcnt(jv_json_text);
     for(int i = 0; i < ref_cnt; i++) { 
         jv_free(jv_json_text);

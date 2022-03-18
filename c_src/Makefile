@@ -20,6 +20,15 @@ else
 	LIBONIG := libonig.so
 endif
 
+ifdef JQ_MEMSAN_DEBUG
+	EXTRA_C_FLAGS := -g -O0 $(MEMSAN_FLAGS) -I $(ERL_TOP)/erts/emulator/beam/ -I $(ERL_TOP)/erts/include/x86_64-pc-linux-gnu/
+	MEMSAN_FLAGS := -fno-omit-frame-pointer -fsanitize=address
+	CC := gcc
+else
+	EXTRA_C_FLAGS := -O3
+	MEMSAN_FLAGS := 
+endif
+
 LIBJQ_NAME := $(LIBJQ_DIR)/$(LIBJQ)
 
 ERTS_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts/erts-~ts/include/\", [code:root_dir(), erlang:system_info(version)]).")
@@ -36,25 +45,25 @@ C_SRC_OUTPUT ?= $(PRIV_DIR)/$(PROJECT).so
 
 ifeq ($(UNAME_SYS), Darwin)
 	CC ?= cc
-	CFLAGS ?= -O3 -std=c99 -arch x86_64 -finline-functions -Wall -Wmissing-prototypes
+	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c99 -arch x86_64 -finline-functions -Wall -Wmissing-prototypes
 	CXXFLAGS ?= -O3 -arch x86_64 -finline-functions -Wall
 	LDFLAGS ?= -arch x86_64 -flat_namespace -undefined suppress
 else ifeq ($(UNAME_SYS), FreeBSD)
 	CC ?= cc
-	CFLAGS ?= -O3 -std=c99 -finline-functions -Wall -Wmissing-prototypes
-	CXXFLAGS ?= -O3 -finline-functions -Wall
+	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c99 -finline-functions -Wall -Wmissing-prototypes
+	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 else ifeq ($(UNAME_SYS), Linux)
-	CC ?= gcc
-	CFLAGS ?= -O3 -std=c99 -finline-functions -Wall -Wmissing-prototypes
-	CXXFLAGS ?= -O3 -finline-functions -Wall
+	CC ?= cc
+	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c99 -finline-functions -Wall -Wmissing-prototypes
+	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 endif
 
 CFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 CXXFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei -l:libjq.a -l:libonig.a
-LDFLAGS += -shared
+LDFLAGS += $(MEMSAN_FLAGS) -shared
 
 # Verbosity.
 
@@ -106,13 +115,13 @@ $(LIBJQ_NAME): $(JQSRC)
 	#ls -lart .libs/ modules/oniguruma/src/.libs/
 	cd $(JQSRC_DIR) && \
 	git submodule update --init && \
-	CFLAGS=-fPIC autoreconf -fi && \
-	CFLAGS=-fPIC ./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \
-	CFLAGS=-fPIC make -C modules/oniguruma/ && \
-	CFLAGS=-fPIC make src/builtin.inc && CFLAGS=-fPIC make libjq.la && \
+	CFLAGS="-fPIC $(EXTRA_C_FLAGS)" autoreconf -fi && \
+	CFLAGS="-fPIC $(EXTRA_C_FLAGS)" ./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \
+	CFLAGS="-fPIC $(EXTRA_C_FLAGS)" make -C modules/oniguruma/ && \
+	CFLAGS="-fPIC $(EXTRA_C_FLAGS)" make src/builtin.inc && CFLAGS=-fPIC make libjq.la && \
 	cp .libs/$(LIBJQ) $(PRIV_DIR)/ && \
 	cp modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/ && \
-	mkdir $(EXT_LIBS) && \
+	(mkdir $(EXT_LIBS) || true) && \
 	cp .libs/libjq.* $(EXT_LIBS)/ && \
 	cp modules/oniguruma/src/.libs/libonig.* $(EXT_LIBS)/ && \
 	cd $(C_SRC_DIR)

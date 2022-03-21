@@ -148,7 +148,13 @@ out:// ----------------------------- release -----------------------------------
 }
 
 static ErlNifFunc nif_funcs[] = {
-    {"parse", 2, parse_nif}
+    /*
+       The parse_nif function seems to be very slow.
+       The Erlang VM acts very strangely when it is not scheduled
+       on a dirty scheduler (for example, timer:sleep() suspends
+       for a much longer time than is should).
+    */
+    {"parse", 2, parse_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND}
 };
 
 int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data, ERL_NIF_TERM load_info)

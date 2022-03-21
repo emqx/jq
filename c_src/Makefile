@@ -23,7 +23,7 @@ endif
 ifdef JQ_MEMSAN_DEBUG
 	EXTRA_C_FLAGS := -g -O0 $(MEMSAN_FLAGS) -I $(ERL_TOP)/erts/emulator/beam/ -I $(ERL_TOP)/erts/include/x86_64-pc-linux-gnu/
 	MEMSAN_FLAGS := -fno-omit-frame-pointer -fsanitize=address
-	CC := gcc
+	CC := clang
 else
 	EXTRA_C_FLAGS := -O3
 	MEMSAN_FLAGS := 
@@ -115,10 +115,11 @@ $(LIBJQ_NAME): $(JQSRC)
 	#ls -lart .libs/ modules/oniguruma/src/.libs/
 	cd $(JQSRC_DIR) && \
 	git submodule update --init && \
-	CFLAGS="-fPIC $(EXTRA_C_FLAGS)" autoreconf -fi && \
-	CFLAGS="-fPIC $(EXTRA_C_FLAGS)" ./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \
-	CFLAGS="-fPIC $(EXTRA_C_FLAGS)" make -C modules/oniguruma/ && \
-	CFLAGS="-fPIC $(EXTRA_C_FLAGS)" make src/builtin.inc && CFLAGS=-fPIC make libjq.la && \
+	CC=$(CC) CFLAGS="-fPIC $(EXTRA_C_FLAGS)" autoreconf -fi && \
+	CC=$(CC) CFLAGS="-fPIC $(EXTRA_C_FLAGS)" ./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) CC=$(CC) CFLAGS="-fPIC $(EXTRA_C_FLAGS)" && \
+	CC=$(CC) CFLAGS="-fPIC $(EXTRA_C_FLAGS)" make -C modules/oniguruma/ && \
+	CC=$(CC) CFLAGS="-fPIC $(EXTRA_C_FLAGS)" make src/builtin.inc && \
+	CC=$(CC) CFLAGS="-fPIC $(EXTRA_C_FLAGS)" make libjq.la && \
 	cp .libs/$(LIBJQ) $(PRIV_DIR)/ && \
 	cp modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/ && \
 	(mkdir $(EXT_LIBS) || true) && \

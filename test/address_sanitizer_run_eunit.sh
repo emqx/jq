@@ -22,7 +22,7 @@ cerl -asan -eval "erlang:halt()"
 cd "$SCRIPT_DIR/.."
 
 (JQ_MEMSAN_DEBUG=1 rebar3 eunit ; true)
-echo "The \"ASan runtime does not come first...\" error above can be ignored"
+echo "The asan error above can most likely be ignored if everything below runs without problems"
 
 
 echo "============================================"

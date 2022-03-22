@@ -1,7 +1,5 @@
 #include "enif_jq.h"
 
-#define MAX_JQ_FILTER_LEN 4096
-
 typedef struct {
     ErlNifEnv* env;
     ERL_NIF_TERM* error_msg_bin_ptr;
@@ -83,7 +81,6 @@ static ERL_NIF_TERM make_ok_return(ErlNifEnv* env, ERL_NIF_TERM result) {
 static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
     ERL_NIF_TERM error_msg_bin; 
-    char jv_filter[MAX_JQ_FILTER_LEN] = {0};
     // ----------------------------- init --------------------------------------
     jq_state *jq = NULL;
     int ret = JQ_ERROR_UNKNOWN;
@@ -122,13 +119,15 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     //jv_dump(jv_json_text, dumpopts);
 
     // -------------------------- compile filter -------------------------------
-    if (erl_jq_filter.size >= MAX_JQ_FILTER_LEN) {
-        ret = JQ_ERROR_SYSTEM;
-        error_msg_bin = make_error_msg_bin(env, "jq filter is too long");
-        goto out;
-    }
-    strncpy(jv_filter, (const char*)erl_jq_filter.data, erl_jq_filter.size);
-    if (!jq_compile(jq, jv_filter)) {
+    // jq_compile requires that the input program (filter) is a NULL terminated string.
+    // Unfortunately, that forces us to create a new larger container that
+    // we can put the program inside. We use an Erlang binary for the container
+    // as small binaries can be efficiently allocated on the heap.
+    ERL_NIF_TERM compile_input;
+    memcpy(enif_make_new_binary(env, erl_jq_filter.size + 1, &compile_input), erl_jq_filter.data, erl_jq_filter.size);
+    enif_inspect_binary(env, compile_input, &erl_jq_filter);
+    erl_jq_filter.data[erl_jq_filter.size-1] = '\0';
+    if (!jq_compile(jq, (char*)erl_jq_filter.data)) {
         ret = JQ_ERROR_COMPILE;
         error_msg_bin = make_error_msg_bin(env, "compile jq filter failed");
         goto out;

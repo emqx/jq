@@ -1,5 +1,4 @@
-#!/bin/bash
-
+#!/usr/bin/env bash
 
 echo "============================================"
 echo "Note that the \"test/address_sanitizer_setup.sh\" has to run"
@@ -7,32 +6,24 @@ echo "successfully at least once before this script will work."
 echo "============================================"
 
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
-OLD_DIR=`pwd`
 
 cd "$SCRIPT_DIR/../otp"
-
 
 export ERL_TOP=`pwd`
 export PATH=$ERL_TOP/bin:$PATH
     
-echo "Changed ERL_TOP ($ERL_TOP) and PATH"
-
-cerl -asan -eval "erlang:halt()"
-
 cd "$SCRIPT_DIR/.."
 
-(JQ_MEMSAN_DEBUG=1 rebar3 eunit ; true)
+(JQ_MEMSAN_DEBUG=1 rebar3 eunit || true)
 echo "The asan error above can most likely be ignored if everything below runs without problems"
-
 
 echo "============================================"
 echo "Running the eunit test with address sanitizer"
 echo "============================================"
 
-
-rm -rf asan_logs
-
 export ASAN_LOG_DIR=`pwd`/asan_logs
+
+(rm -rf "$ASAN_LOG_DIR" || true)
 
 mkdir "$ASAN_LOG_DIR"
 
@@ -48,4 +39,3 @@ echo "============================================"
 
 cat "$ASAN_LOG_DIR/`ls "$ASAN_LOG_DIR"`"
 
-cd "$OLD_DIR"

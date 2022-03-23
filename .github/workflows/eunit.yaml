@@ -13,18 +13,19 @@ jobs:
       fail-fast: false
       matrix:
         erl_otp:
-        - erl23.2.7
-        #- erl22.3.4.13
+          - 23.3.4.9-4
+          - 24.2.1-1
+        elixir:
+          - 1.13.3
         os:
-        - ubuntu20.04
-        - ubuntu18.04
-        - ubuntu16.04
-        - debian10
-        - debian9
-        - centos8
-        - centos7
+          - ubuntu20.04
+          - ubuntu18.04
+          - ubuntu16.04
+          - debian10
+          - debian9
+          - rockylinux8
 
-    container: emqx/build-env:${{ matrix.erl_otp }}-${{ matrix.os }}
+    container: "ghcr.io/emqx/emqx-builder/5.0-9:${{ matrix.elixir }}-${{ matrix.erl_otp }}-${{ matrix.os }}"
 
     steps:
     - uses: actions/checkout@v2

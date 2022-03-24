@@ -1,20 +1,30 @@
 #include "enif_jq.h"
+#include "jv.h"
 
-#define MAX_ERR_MSG_LEN 4096
-#define MAX_JQ_FILTER_LEN 4096
+typedef struct {
+    ErlNifEnv* env;
+    ERL_NIF_TERM* error_msg_bin_ptr;
+} NifEnvAndErrBinPtr;
 
-char err_msg[MAX_ERR_MSG_LEN];
+// Forward declaration
+static ERL_NIF_TERM make_error_msg_bin(ErlNifEnv* env, const char* msg, size_t msg_size);
 
 static void err_callback(void *data, jv err) {
-    char* err_data = data;
+    NifEnvAndErrBinPtr* env_and_msg_bin = data;
+    ErlNifEnv* env = env_and_msg_bin->env; 
+    ERL_NIF_TERM* error_msg_bin_ptr = env_and_msg_bin->error_msg_bin_ptr; 
     if (jv_get_kind(err) != JV_KIND_STRING)
         err = jv_dump_string(err, JV_PRINT_INVALID);
-    snprintf(err_data, MAX_ERR_MSG_LEN, "%s", jv_string_value(err));
+    *error_msg_bin_ptr =
+        make_error_msg_bin(env,
+                           jv_string_value(err),
+                           jv_string_length_bytes(jv_copy(err)));
     jv_free(err);
 }
 
 static int process_json(jq_state *jq, jv value,
-        ErlNifEnv* env, ERL_NIF_TERM *ret_list, int flags, int dumpopts) {
+        ErlNifEnv* env, ERL_NIF_TERM *ret_list, int flags, int dumpopts,
+        ERL_NIF_TERM* error_msg_bin_ptr) {
   int ret = JQ_ERROR_UNKNOWN;
   jq_start(jq, value, flags);
   jv result;
@@ -37,11 +47,16 @@ static int process_json(jq_state *jq, jv value,
     // Uncaught jq exception
     jv msg = jv_invalid_get_msg(jv_copy(result));
     if (jv_get_kind(msg) == JV_KIND_STRING) {
-        snprintf(err_msg, MAX_ERR_MSG_LEN, "jq error: %s\n", jv_string_value(msg));
+        size_t binsz = snprintf(NULL, 0, "jq error: %s\n", jv_string_value(msg));
+        char* bin_data = (char*)enif_make_new_binary(env, binsz, error_msg_bin_ptr);
+        snprintf(bin_data, binsz, "jq error: %s\n", jv_string_value(msg));
     } else {
         msg = jv_dump_string(msg, 0);
-        snprintf(err_msg, MAX_ERR_MSG_LEN, "jq error (not a string): %s\n",
-            jv_string_value(msg));
+        size_t binsz = snprintf(NULL, 0, "jq error (not a string): %s\n",
+                jv_string_value(msg));
+        char* bin_data = (char*)enif_make_new_binary(env, binsz, error_msg_bin_ptr);
+        snprintf(bin_data, binsz, "jq error (not a string): %s\n",
+                jv_string_value(msg));
     }
     ret = JQ_ERROR_PROCESS;
     jv_free(msg);
@@ -50,13 +65,16 @@ static int process_json(jq_state *jq, jv value,
   return ret;
 }
 
-static ERL_NIF_TERM make_error_return(ErlNifEnv* env, int err_no, const char* msg) {
-    const char* err_tag = err_tags[err_no];
+static ERL_NIF_TERM make_error_msg_bin(ErlNifEnv* env, const char* msg, size_t msg_size) {
     ERL_NIF_TERM err_msg_term;
-    int binterm_sz = strlen(msg);
-    memcpy(enif_make_new_binary(env, binterm_sz, &err_msg_term), msg, binterm_sz);
+    memcpy(enif_make_new_binary(env, msg_size, &err_msg_term), msg, msg_size);
+    return err_msg_term;
+}
+
+static ERL_NIF_TERM make_error_return(ErlNifEnv* env, int err_no, ERL_NIF_TERM err_msg_bin) {
+    const char* err_tag = err_tags[err_no];
     return enif_make_tuple2(env, enif_make_atom(env, "error"),
-             enif_make_tuple2(env, enif_make_atom(env, err_tag), err_msg_term));
+             enif_make_tuple2(env, enif_make_atom(env, err_tag), err_msg_bin));
 }
 
 static ERL_NIF_TERM make_ok_return(ErlNifEnv* env, ERL_NIF_TERM result) {
@@ -65,59 +83,82 @@ static ERL_NIF_TERM make_ok_return(ErlNifEnv* env, ERL_NIF_TERM result) {
 
 static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    char jv_filter[MAX_JQ_FILTER_LEN] = {0};
+    ERL_NIF_TERM error_msg_bin; 
     // ----------------------------- init --------------------------------------
     jq_state *jq = NULL;
     int ret = JQ_ERROR_UNKNOWN;
     ERL_NIF_TERM ret_term;
-    memset(err_msg, 0, MAX_ERR_MSG_LEN * sizeof(char));
     int dumpopts = 512; // JV_PRINT_SPACE1
     jq = jq_init();
     if (jq == NULL) {
         ret = JQ_ERROR_SYSTEM;
-        strcpy(err_msg, "jq_init: malloc error");
+        const char* error_message = "jq_init: Could not initialize jq";
+        error_msg_bin =
+            make_error_msg_bin(env, error_message, strlen(error_message));
         goto out;
     }
-    jq_set_error_cb(jq, err_callback, err_msg);
+    NifEnvAndErrBinPtr env_and_msg_bin = {
+        .env = env,
+        .error_msg_bin_ptr = &error_msg_bin
+    };
+    jq_set_error_cb(jq, err_callback, &env_and_msg_bin);
 
     // --------------------------- read args -----------------------------------
-    ErlNifBinary erl_jq_filter, erl_json_text;
+    ErlNifBinary erl_jq_filter;
+    ErlNifBinary erl_json_text;
     if (!enif_inspect_binary(env, argv[0], &erl_jq_filter) ||
         !enif_inspect_binary(env, argv[1], &erl_json_text)) {
         ret = JQ_ERROR_BADARG;
-        strcpy(err_msg, "invalid input or filter");
+        const char* error_message = "Expected arguments of type binary but got something else";
+        error_msg_bin =
+            make_error_msg_bin(env, error_message, strlen(error_message));
         goto out;
-	}
+    }
 
     // ------------------------- parse input json -----------------------------
-    jv jv_json_text = jv_parse_sized((const char*)erl_json_text.data, erl_json_text.size);
+    // It is reasonable to assume that jv_parse_sized would not require the 
+    // input string to be NULL terminated. Unfortunately this is not the case.
+    // Error reporting depends on that the input string is NULL terminated
+    // so we have to copy the input to a larger memory block to make sure it
+    // is NULL terminated. A binary is used because small binaries are cheap
+    // as they can be allocated on the process heap.
+    ERL_NIF_TERM json_input;
+    memcpy(enif_make_new_binary(env, erl_json_text.size + 1, &json_input), erl_json_text.data, erl_json_text.size);
+    enif_inspect_binary(env, json_input, &erl_json_text);
+    erl_json_text.data[erl_json_text.size-1] = '\0';
+    jv jv_json_text = jv_parse_sized((const char*)erl_json_text.data, erl_json_text.size - 1);
     if (!jv_is_valid(jv_json_text)) {
         ret = JQ_ERROR_PARSE;
         // jv_invalid_get_msg destroys input jv object and returns new jv object
         jv_json_text = jv_invalid_get_msg(jv_json_text);
-        strncpy(err_msg, jv_string_value(jv_json_text),
-            MAX_ERR_MSG_LEN);
+        error_msg_bin =
+            make_error_msg_bin(env,
+                               jv_string_value(jv_json_text),
+                               jv_string_length_bytes(jv_copy(jv_json_text)));
         goto out;
     }
     //jv_dump(jv_json_text, dumpopts);
 
     // -------------------------- compile filter -------------------------------
-    if (erl_jq_filter.size >= MAX_JQ_FILTER_LEN) {
-        ret = JQ_ERROR_SYSTEM;
-        strcpy(err_msg, "jq filter is too long");
-        goto out;
-    }
-    strncpy(jv_filter, (const char*)erl_jq_filter.data, erl_jq_filter.size);
-    if (!jq_compile(jq, jv_filter)) {
+    // jq_compile requires that the input program (filter) is a NULL terminated string.
+    // Unfortunately, that forces us to create a new larger container that
+    // we can put the program inside. We use an Erlang binary for the container
+    // as small binaries can be efficiently allocated on the heap.
+    ERL_NIF_TERM compile_input;
+    memcpy(enif_make_new_binary(env, erl_jq_filter.size + 1, &compile_input), erl_jq_filter.data, erl_jq_filter.size);
+    enif_inspect_binary(env, compile_input, &erl_jq_filter);
+    erl_jq_filter.data[erl_jq_filter.size-1] = '\0';
+    if (!jq_compile(jq, (char*)erl_jq_filter.data)) {
         ret = JQ_ERROR_COMPILE;
-        strcpy(err_msg, "compile jq filter failed");
+        const char* error_message = "Compilation of jq filter failed";
+        error_msg_bin = make_error_msg_bin(env, error_message, strlen(error_message));
         goto out;
     }
 
     // ---------------------- process json text --------------------------------
     ERL_NIF_TERM ret_list = enif_make_list(env, 0);
     /*TODO: process_raw(jq, jv_json_text, &result, 0, dumpopts)*/
-    ret = process_json(jq, jv_copy(jv_json_text), env, &ret_list, 0, dumpopts);
+    ret = process_json(jq, jv_copy(jv_json_text), env, &ret_list, 0, dumpopts, &error_msg_bin);
 
 out:// ----------------------------- release -----------------------------------
     switch (ret) {
@@ -129,7 +170,7 @@ out:// ----------------------------- release -----------------------------------
         case JQ_ERROR_COMPILE:
         case JQ_ERROR_PARSE:
         case JQ_ERROR_PROCESS: {
-            ret_term = make_error_return(env, ret, err_msg);
+            ret_term = make_error_return(env, ret, error_msg_bin);
             break;
         }
         case JQ_OK: {
@@ -139,7 +180,7 @@ out:// ----------------------------- release -----------------------------------
     }
     jq_teardown(&jq);
     // jq_next sometimes frees the input json and sometimes not so it is difficult
-    // to keep track of how many copies (ref cnt inc) we have made.S
+    // to keep track of how many copies (ref cnt inc) we have made.
     int ref_cnt = jv_get_refcnt(jv_json_text);
     for(int i = 0; i < ref_cnt; i++) { 
         jv_free(jv_json_text);
@@ -148,7 +189,13 @@ out:// ----------------------------- release -----------------------------------
 }
 
 static ErlNifFunc nif_funcs[] = {
-    {"parse", 2, parse_nif}
+    /*
+       The parse_nif function seems to be very slow.
+       The Erlang VM acts very strangely when it is not scheduled
+       on a dirty scheduler (for example, timer:sleep() suspends
+       for a much longer time than is should).
+    */
+    {"parse", 2, parse_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND}
 };
 
 int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data, ERL_NIF_TERM load_info)

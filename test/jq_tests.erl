@@ -40,28 +40,37 @@ get_tests_cases() ->
                      object_identifier_index_test_(),
                      array_index_test_()])].
 
-repeat_tests(Parent, ShouldStop, [], AllTestFuns) ->
+repeat_tests(Parent, ShouldStop, [], AllTestFuns, Cnt) ->
     case counters:get(ShouldStop, 1) of
         0 ->
-            repeat_tests(Parent, ShouldStop, AllTestFuns, AllTestFuns);
+            repeat_tests(Parent, ShouldStop, AllTestFuns, AllTestFuns, Cnt);
         _ -> 
-            Parent ! test_process_stopped
+            Parent ! {test_process_stopped, Cnt}
     end;
-repeat_tests(Parent, ShouldStop, [TestFun | RemTestFuns], AllTestFuns) ->
+repeat_tests(Parent, ShouldStop, [TestFun | RemTestFuns], AllTestFuns, Cnt) ->
     TestFun(),
-    repeat_tests(Parent, ShouldStop, RemTestFuns, AllTestFuns).
+    repeat_tests(Parent, ShouldStop, RemTestFuns, AllTestFuns, Cnt + 1).
 
-concurrent_queries_test() ->
-    NrOfTestProcess = 4,
+concurrent_queries_test(NrOfTestProcess) ->
     TestTimeMs = 1000,
     ShouldStop = counters:new(1, []),
     TestCases = get_tests_cases(), 
     Self = erlang:self(),
     TestRunner = fun() ->
-                    repeat_tests(Self, ShouldStop, TestCases, TestCases)
+                    repeat_tests(Self, ShouldStop, TestCases, TestCases, 0)
                  end,
     [erlang:spawn_link(TestRunner) || _ <- lists:seq(1, NrOfTestProcess)], 
     timer:sleep(TestTimeMs),
     counters:add(ShouldStop, 1, 1),
-    [receive test_process_stopped -> ok end || _ <- lists:seq(1, NrOfTestProcess)], 
+    Cnts = [receive {test_process_stopped, Cnt} -> Cnt end || _ <- lists:seq(1, NrOfTestProcess)], 
+    erlang:display({'# of processes', NrOfTestProcess, 'Test Cases / Second', lists:sum(Cnts)}),
     ok.
+
+concurrent_queries_test_() ->
+    {timeout, erlang:system_info(schedulers) * 2,
+     fun() ->
+             erlang:display_nl(),
+             [(ok = concurrent_queries_test(NrOfTestProcess))
+              || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],
+             ok
+     end}.

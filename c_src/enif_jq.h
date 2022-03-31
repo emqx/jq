@@ -11,7 +11,7 @@
 extern jv jv_parse(const char* string);
 extern int jq_compile(jq_state *jq, const char* str);
 
-int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data, ERL_NIF_TERM load_info);
+//int upgrade(ErlNifEnv* env, void** priv_data, void** old_priv_data, ERL_NIF_TERM load_info);
 
 enum {
     JQ_OK              =  0,

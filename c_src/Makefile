@@ -6,8 +6,11 @@ BASEDIR := $(abspath $(CURDIR)/..)
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
 JQURL := https://github.com/terry-xiaoyu/jqc.git
-JQSRC_DIR := $(CURDIR)/jqc
+JQSRC_DIR := $(CURDIR)/libs/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
+RDSURL := https://github.com/kjellwinblad/c_reusable_data_structures.git
+RDSSRC_DIR := $(CURDIR)/libs/c_reusable_data_structures
+RDSSRC := $(RDSSRC_DIR)/Makefile
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
 LIBJQ_PREFIX := /usr/local
 EXT_LIBS := $(CURDIR)/ext_libs
@@ -34,6 +37,7 @@ LIBJQ_NAME := $(LIBJQ_DIR)/$(LIBJQ)
 ERTS_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts/erts-~ts/include/\", [code:root_dir(), erlang:system_info(version)]).")
 ERL_INTERFACE_INCLUDE_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, include)]).")
 JQ_INCLUDE_DIR ?= $(JQSRC_DIR)/src
+DS_INCLUDE_DIR ?= libs/c_reusable_data_structures
 
 ERL_INTERFACE_LIB_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, lib)]).")
 
@@ -45,22 +49,22 @@ C_SRC_OUTPUT ?= $(PRIV_DIR)/$(PROJECT).so
 
 ifeq ($(UNAME_SYS), Darwin)
 	CC ?= cc
-	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c99 -arch x86_64 -finline-functions -Wall -Wmissing-prototypes
+	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -arch x86_64 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= -O3 -arch x86_64 -finline-functions -Wall
 	LDFLAGS ?= -arch x86_64 -flat_namespace -undefined suppress
 else ifeq ($(UNAME_SYS), FreeBSD)
 	CC ?= cc
-	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c99 -finline-functions -Wall -Wmissing-prototypes
+	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 else ifeq ($(UNAME_SYS), Linux)
 	CC ?= cc
-	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c99 -finline-functions -Wall -Wmissing-prototypes
+	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 endif
 
-CFLAGS += -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
+CFLAGS += -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR) -I $(DS_INCLUDE_DIR)
 CXXFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei -l:libjq.a -l:libonig.a
 LDFLAGS += $(MEMSAN_FLAGS) -shared
@@ -110,8 +114,19 @@ build_erl_jq: $(OBJECTS)
 
 $(JQSRC):
 	git clone -b jq-1.6-emqx --single-branch $(JQURL) $(JQSRC_DIR)
+	((cd $(JQSRC_DIR) && git checkout 51df83ccf4808867eee79a011c71a93a121be1b6) || \
+	     (echo "Failed to check out jq commit" && \
+	      rm -r $(JQSRC_DIR) && \
+	      false))
 
-$(LIBJQ_NAME): $(JQSRC)
+$(RDSSRC):
+	git clone -b master --single-branch $(RDSURL) $(RDSSRC_DIR)
+	((cd $(RDSSRC_DIR) && git checkout 40cdd2544cfbd697ec9fa6d70fd971560cd9b4ff) || \
+	     (echo "Failed to check out c_reusable_data_structures commit" && \
+	      rm -r $(RDSSRC_DIR) && \
+	      false))
+
+$(LIBJQ_NAME): $(JQSRC) $(RDSSRC)
 	#ls -lart .libs/ modules/oniguruma/src/.libs/
 	cd $(JQSRC_DIR) && \
 	git submodule update --init && \

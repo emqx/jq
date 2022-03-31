@@ -21,7 +21,9 @@ init() ->
         Dir ->
             filename:join(Dir, ?LIBNAME)
     end,
-    erlang:load_nif(SoName, 0).
+    JQNifConfig =
+        #{filter_program_lru_cache_max_size => 500},
+    erlang:load_nif(SoName, JQNifConfig).
 
 not_loaded(Line) ->
     erlang:nif_error({not_loaded, [{module, ?MODULE}, {line, Line}]}).

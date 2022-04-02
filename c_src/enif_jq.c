@@ -2,9 +2,44 @@
 #include "jv.h"
 #include "lru.h"
 
+#if __STDC_NO_THREADS__ == 0
+
+#include <threads.h>
+
+#elif JQ_NO_PTHREAD == 0
+
+#include <pthread.h>
+
+#define tss_t pthread_key_t
+#define thrd_error 1
+#define thrd_success 0
+#define tss_create(key, dtor) (pthread_key_create(key, dtor) != 0 ? thrd_error : thrd_success)
+#define tss_delete(key) pthread_key_delete(key)
+#define tss_get(key) pthread_getspecific(key)
+#define tss_set(key, data) (pthread_setspecific(key, data) != 0 ? thrd_error : thrd_success)
+
+#else
+// As a last resort we fall back to using the NIF library's thread local
+// variables as enif_tsd_key_destroy has the following requirement 
+// (quote from https://www.erlang.org/doc/man/erl_driver.html#erl_drv_tsd_set):
+
+// "All thread-specific data using this key in all threads must be cleared (see
+// erl_drv_tsd_set) before the call to erl_drv_tsd_key_destroy."
+
+// This makes it very tricky to delete keys when the the jq module is unloaded
+
+#define tss_t ErlNifTSDKey
+#define thrd_error 1
+#define thrd_success 0
+#define tss_create(key, dtor) (enif_tsd_key_create("jq_state_cache", key) != 0 ? thrd_error : thrd_success)
+#define tss_get(key) enif_tsd_get(key)
+#define tss_set(key, data) enif_tsd_set(key, data)
+// Do nothing on delete
+#define tss_delete(key) 
+
+#endif
 
 #include <stdbool.h>
-#include <threads.h>
 
 // Thread local variable used by jqstate_cache_entry_shall_evict and
 // set when creating a new thread local jq_state cache to a

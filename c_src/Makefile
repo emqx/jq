@@ -64,7 +64,11 @@ else ifeq ($(UNAME_SYS), Linux)
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 endif
 
-CFLAGS += -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR) -I $(DS_INCLUDE_DIR)
+STDC_NO_THREAD := $(shell ./check_if_threads_header_exists.sh "$(CC)" "$(CFLAGS)" threads.h)
+
+NO_PTHREAD := $(shell ./check_if_threads_header_exists.sh "$(CC)" "$(CFLAGS)" pthread.h)
+
+CFLAGS += -D__STDC_NO_THREADS__=$(STDC_NO_THREAD) -DJQ_NO_PTHREAD=$(NO_PTHREAD) -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR) -I $(DS_INCLUDE_DIR)
 CXXFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei -l:libjq.a -l:libonig.a
 LDFLAGS += $(MEMSAN_FLAGS) -shared

@@ -5,7 +5,6 @@
 
 -define(APPNAME, jq).
 -define(LIBNAME, jq).
-
 parse(_, _) ->
     not_loaded(?LINE).
 
@@ -21,8 +20,13 @@ init() ->
         Dir ->
             filename:join(Dir, ?LIBNAME)
     end,
+    %% Start the jq application here since it needs to be started so
+    %% we can read its properties
+    application:start(jq),
+    CacheMaxSize =
+        application:get_env(jq, jq_filter_program_lru_cache_max_size, 500),
     JQNifConfig =
-        #{filter_program_lru_cache_max_size => 500},
+        #{filter_program_lru_cache_max_size => CacheMaxSize},
     erlang:load_nif(SoName, JQNifConfig).
 
 not_loaded(Line) ->

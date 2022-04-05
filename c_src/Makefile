@@ -5,10 +5,10 @@ BASEDIR := $(abspath $(CURDIR)/..)
 
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
-JQURL := https://github.com/terry-xiaoyu/jqc.git
+JQURL := https://github.com/emqx/jqc.git
 JQSRC_DIR := $(CURDIR)/libs/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
-RDSURL := https://github.com/kjellwinblad/c_reusable_data_structures.git
+RDSURL := https://github.com/emqx/c_reusable_data_structures.git
 RDSSRC_DIR := $(CURDIR)/libs/c_reusable_data_structures
 RDSSRC := $(RDSSRC_DIR)/Makefile
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs

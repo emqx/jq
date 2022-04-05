@@ -1,11 +1,20 @@
 -module(jq).
 
--export([parse/2]).
+-export([  parse/2
+         , set_filter_program_lru_cache_max_size/1
+         , get_filter_program_lru_cache_max_size/0]).
 -on_load(init/0).
 
 -define(APPNAME, jq).
 -define(LIBNAME, jq).
+
 parse(_, _) ->
+    not_loaded(?LINE).
+
+set_filter_program_lru_cache_max_size(_) ->
+    not_loaded(?LINE).
+
+get_filter_program_lru_cache_max_size() ->
     not_loaded(?LINE).
 
 init() ->

@@ -125,7 +125,7 @@ $(JQSRC):
 
 $(RDSSRC):
 	git clone -b master --single-branch $(RDSURL) $(RDSSRC_DIR)
-	((cd $(RDSSRC_DIR) && git checkout 40cdd2544cfbd697ec9fa6d70fd971560cd9b4ff) || \
+	((cd $(RDSSRC_DIR) && git checkout 17b1b606b2f7b5fa6556ded6bfbbaf36c165ee84) || \
 	     (echo "Failed to check out c_reusable_data_structures commit" && \
 	      rm -r $(RDSSRC_DIR) && \
 	      false))

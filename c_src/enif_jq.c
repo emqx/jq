@@ -41,10 +41,6 @@
 
 #include <stdbool.h>
 
-// Thread local variable used by jqstate_cache_entry_shall_evict and
-// set when creating a new thread local jq_state cache to a
-// value (TODO: make this value configurable)
-static _Thread_local long jq_state_cache_max_size = 42;
 
 typedef struct JQStateCacheEntry_lru* JQStateCacheEntry_lru_ptr;
 static bool JQStateCacheEntry_lru_ptr_eq(
@@ -66,11 +62,38 @@ DECLARE_DYNARR_DS(JQStateCacheEntry_lru_ptr,
                   JQStateCacheEntry_lru_ptr_eq,
                   1)
 
+// Data that is private to this version of the module
+typedef struct {
+    // The following two fields always have to be placed first
+    // in any new version of this library so that they can
+    // be found when doing hot upgrading.
+    
+    // The following field should be increased when a new version
+    // of this library is released (that can be hot upgraded to
+    // from a previous release).
+    int version;
+    // The following field should be increased by one when the
+    // library is hot upgraded (this is used to set the lock name
+    // to an unique name)
+    int nr_of_loads_before;
+
+    // The maximum size for the thread local jq_state caches
+    int lru_cache_max_size;
+    // thread local storage key used to find the jq_state cache
+    tss_t thread_local_jq_state_lru_cache_key;
+    // Dynamic array containing pointers to caches so that they can
+    // be freed when the module is unloaded
+    JQStateCacheEntry_lru_ptr_dynarr caches;
+    // Lock protecting the above field from concurrent modifications
+    ErlNifMutex * lock;
+} module_private_data;
+
 // jq_state cache entry (hash and string is the key and state is the value)
 typedef struct {
     size_t hash;
     char* string;
     jq_state* state;
+    module_private_data* module_data;
 } JQStateCacheEntry;
 
 // Hash function for strings from https://stackoverflow.com/a/7666577
@@ -86,9 +109,14 @@ static size_t hash_str(char *str) {
 }
 
 // Initialize a cache entry without any value
-static void jqstate_cache_entry_init(JQStateCacheEntry* entry, char* string) {
+static void jqstate_cache_entry_init(
+        JQStateCacheEntry* entry,
+        char* string,
+        module_private_data* data) {
+
     entry->hash = hash_str(string);    
     entry->string = string;
+    entry->module_data = data;
 }
 
 static bool jqstate_cache_entry_eq(JQStateCacheEntry* o1, JQStateCacheEntry* o2) {
@@ -110,8 +138,7 @@ static void jqstate_cache_entry_destroy(JQStateCacheEntry* o) {
 static bool jqstate_cache_entry_shall_evict(
         size_t current_cache_size,
         JQStateCacheEntry* value) {
-    (void)value;
-    return current_cache_size > jq_state_cache_max_size;
+    return current_cache_size > value->module_data->lru_cache_max_size;
 }
 
 // Generates structs and functions for an LRU (Least Recently Used) cache.
@@ -131,36 +158,12 @@ DECLARE_LRUCACHE_DS(
         jqstate_cache_entry_destroy,
         jqstate_cache_entry_shall_evict)
 
-// Data that is private to this version of the module
-typedef struct {
-    // The following two fields always have to be placed first
-    // in any new version of this library so that they can
-    // be found when doing hot upgrading.
-    
-    // The following field should be increased when a new version
-    // of this library is released (that can be hot upgraded to
-    // from a previous release).
-    int version;
-    // The following field should be increased by one when the
-    // library is hot upgraded (this is used to set the lock name
-    // to an unique name)
-    int nr_of_loads_before;
 
-    // The maximum size for the thread local jq_state caches
-    size_t lru_cache_max_size;
-    // thread local storage key used to find the jq_state cache
-    tss_t thread_local_jq_state_lru_cache_key;
-    // Dynamic array containing pointers to caches so that they can
-    // be freed when the module is unloaded
-    JQStateCacheEntry_lru_ptr_dynarr caches;
-    // Lock protecting the above filed from concurrent modifications
-    ErlNifMutex * lock;
-} module_private_data;
 
 // Returns the jq_state cache for the current thread (creates a new cache
 // if the current thread don't already have a cache). 
-static JQStateCacheEntry_lru * get_jqstate_cache(ErlNifEnv* env) {
-    module_private_data* data = enif_priv_data(env);
+static JQStateCacheEntry_lru * get_jqstate_cache(
+        ErlNifEnv* env, module_private_data* data) {
     JQStateCacheEntry_lru * cache =
         tss_get(data->thread_local_jq_state_lru_cache_key);
     if (cache == NULL) {
@@ -172,8 +175,14 @@ static JQStateCacheEntry_lru * get_jqstate_cache(ErlNifEnv* env) {
         enif_mutex_unlock(data->lock);
         // Store the cache in the thread local storage for this thread
         tss_set(data->thread_local_jq_state_lru_cache_key, cache);
-        // Set the max size so it can be seen from jqstate_cache_entry_shall_evict
-        jq_state_cache_max_size = data->lru_cache_max_size;
+    } else {
+        // The max size can change dynamically
+        size_t current_size = JQStateCacheEntry_lru_size(cache);
+        if (current_size > data->lru_cache_max_size) {
+            while (JQStateCacheEntry_lru_evict_if_condition_is_true(cache)) {
+                // Continue until we have reduced the size to the max size
+            }
+        }
     }
     return cache;
 }
@@ -198,8 +207,10 @@ jq_state* get_jq_state(
         ErlNifEnv* env,
         ERL_NIF_TERM* error_msg_bin_ptr,
         int* ret,
-        ErlNifBinary erl_jq_filter) {
+        ErlNifBinary erl_jq_filter,
+        int* remove_jq_object) {
 
+    module_private_data* data = enif_priv_data(env);
     // Make sure the JQ filter is \0 terminated
     ERL_NIF_TERM compile_input;
     memcpy(enif_make_new_binary(
@@ -210,15 +221,19 @@ jq_state* get_jq_state(
             erl_jq_filter.size);
     enif_inspect_binary(env, compile_input, &erl_jq_filter);
     erl_jq_filter.data[erl_jq_filter.size-1] = '\0';
-    // Check if there is already a jq filter in the LRU cache
-    JQStateCacheEntry_lru * cache = get_jqstate_cache(env);
+    JQStateCacheEntry_lru * cache = get_jqstate_cache(env, data);
     JQStateCacheEntry new_entry;
-    jqstate_cache_entry_init(&new_entry, (char*)erl_jq_filter.data);
-    JQStateCacheEntry * cache_entry =
-        JQStateCacheEntry_lru_get(cache, new_entry);
-    if (cache_entry != NULL) {
-        // Return jq_state from cache
-        return cache_entry->state;
+    if (data->lru_cache_max_size > 0) {
+        // Check if there is already a jq filter in the LRU cache
+        jqstate_cache_entry_init(&new_entry, (char*)erl_jq_filter.data, data);
+        JQStateCacheEntry * cache_entry =
+            JQStateCacheEntry_lru_get(cache, new_entry);
+        if (cache_entry != NULL) {
+            // Return jq_state from cache
+            return cache_entry->state;
+        }
+    } else {
+        cache = NULL;
     }
     // No entry in the cache so we have to create a new jq_state
     jq_state *jq = NULL;
@@ -238,11 +253,16 @@ jq_state* get_jq_state(
         jq_teardown(&jq);
         return NULL;
     }
-    char * filter_program_string = enif_alloc(erl_jq_filter.size);
-    memcpy(filter_program_string, erl_jq_filter.data, erl_jq_filter.size);
-    new_entry.state = jq;
-    new_entry.string = filter_program_string;
-    JQStateCacheEntry_lru_add(cache, new_entry);
+    if (cache != NULL) {
+        // Add new entry to cache
+        char * filter_program_string = enif_alloc(erl_jq_filter.size);
+        memcpy(filter_program_string, erl_jq_filter.data, erl_jq_filter.size);
+        new_entry.state = jq;
+        new_entry.string = filter_program_string;
+        JQStateCacheEntry_lru_add(cache, new_entry);
+    } else {
+        *remove_jq_object = 1;
+    }
     return jq;
 }
 
@@ -344,6 +364,7 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     ERL_NIF_TERM error_msg_bin; 
     // ----------------------------- init --------------------------------------
     jq_state *jq = NULL;
+    int remove_jq_object = 0;
     int ret = JQ_ERROR_UNKNOWN;
     ERL_NIF_TERM ret_term;
     int dumpopts = 512; // JV_PRINT_SPACE1
@@ -361,7 +382,7 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
         goto out;
     }
     // --------- get jq state and compile filter program if not cached ---------
-    jq = get_jq_state(env, &error_msg_bin, &ret, erl_jq_filter);
+    jq = get_jq_state(env, &error_msg_bin, &ret, erl_jq_filter, &remove_jq_object);
     if (jq == NULL) {
         goto out;
     }
@@ -434,19 +455,48 @@ out:// ----------------------------- release -----------------------------------
     for(int i = 0; i < ref_cnt; i++) { 
         jv_free(jv_json_text);
     }
+    if (remove_jq_object) {
+        jq_teardown(&jq);
+    }
     return ret_term;
 }
 
-static ErlNifFunc nif_funcs[] = {
-    /*
-       The parse_nif function seems to be very slow (at least when
-       given filter programs that are not in the cache).
-       The Erlang VM acts very strangely when it is not scheduled
-       on a dirty scheduler (for example, timer:sleep() suspends
-       for a much longer time than is should).
-    */
-    {"parse", 2, parse_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND}
-};
+static ERL_NIF_TERM
+set_filter_program_lru_cache_max_size_nif(
+        ErlNifEnv* env,
+        int argc,
+        const ERL_NIF_TERM argv[]) {
+
+    int value_to_set;
+    if ( ! enif_get_int(
+               env,
+               argv[0],
+               &value_to_set) ) {
+        // Incorrect load info
+        return enif_make_badarg(env);
+    }
+    if ( value_to_set < 0) {
+        return enif_make_badarg(env);
+    }
+    module_private_data* data = enif_priv_data(env);
+    // Hold lock while doing the change to avoid
+    // write data race
+    enif_mutex_lock(data->lock);
+    data->lru_cache_max_size = value_to_set;
+    enif_mutex_unlock(data->lock);
+    return enif_make_atom(env, "ok");
+}
+
+
+static ERL_NIF_TERM
+get_filter_program_lru_cache_max_size_nif(
+        ErlNifEnv* env,
+        int argc,
+        const ERL_NIF_TERM argv[]) {
+
+    module_private_data* data = enif_priv_data(env);
+    return enif_make_int(env, data->lru_cache_max_size); 
+}
 
 static int get_int_config(
         ErlNifEnv* caller_env,
@@ -488,6 +538,9 @@ static int load_helper(
                 load_info,
                 "filter_program_lru_cache_max_size",
                 &filter_program_lru_cache_max_size) ) {
+        return 1;
+    }
+    if (filter_program_lru_cache_max_size < 0) {
         return 1;
     }
     module_private_data* data = enif_alloc(sizeof(module_private_data));
@@ -539,6 +592,19 @@ static int upgrade(
     module_private_data* old_data = *old_priv_data;
     return load_helper(env, priv_data, load_info, old_data->nr_of_loads_before);
 }
+
+static ErlNifFunc nif_funcs[] = {
+    /*
+       The parse_nif function seems to be very slow (at least when
+       given filter programs that are not in the cache).
+       The Erlang VM acts very strangely when it is not scheduled
+       on a dirty scheduler (for example, timer:sleep() suspends
+       for a much longer time than is should).
+    */
+    {"parse", 2, parse_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"set_filter_program_lru_cache_max_size", 1, set_filter_program_lru_cache_max_size_nif, 0},
+    {"get_filter_program_lru_cache_max_size", 0, get_filter_program_lru_cache_max_size_nif, 0}
+};
 
 ERL_NIF_INIT(jq, nif_funcs, load, NULL, upgrade, unload)
 

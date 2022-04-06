@@ -6,6 +6,42 @@ on:
   - workflow_dispatch
 
 jobs:
+  mac:
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-10.15
+          - macos-11
+        otp:
+          - 23
+          - 24
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+      - name: Configure Homebrew cache
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/Library/Caches/Homebrew/
+            ~/Library/Caches/Homebrew/downloads/
+          key: brew-${{ matrix.os }}-${{ matrix.otp  }}
+      - name: prepare
+        run: |
+          brew update
+          brew install erlang@${{ matrix.otp }}
+          brew install automake
+      - name: install rebar3
+        run: |
+          wget https://s3.amazonaws.com/rebar3/rebar3 && chmod +x rebar3
+          cp ./rebar3 /usr/local/bin/rebar3
+      - name: release build
+        run: |
+          export PATH="/usr/local/opt/erlang@${{ matrix.otp }}/bin:$PATH"
+          ${GITHUB_WORKSPACE}/rebar3 eunit
   build:
     runs-on: ubuntu-20.04
 

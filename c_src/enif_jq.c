@@ -79,9 +79,8 @@ typedef struct {
     // in any new version of this library so that they can
     // be found when doing hot upgrading.
     
-    // The following field should be increased when a new version
-    // of this library is released (that can be hot upgraded to
-    // from a previous release).
+    // The following field is set to the version which is given
+    // when the library is loaded
     int version;
     // The following field should be increased by one when the
     // library is hot upgraded (this is used to set the lock name
@@ -559,13 +558,22 @@ static int load_helper(
     if (filter_program_lru_cache_max_size < 0) {
         return 1;
     }
+    int version;
+    if ( get_int_config(
+                caller_env,
+                load_info,
+                "version",
+                &version) ) {
+        return 1;
+    }
     module_private_data* data = enif_alloc(sizeof(module_private_data));
     if (data == NULL) {
         fprintf(stderr, "ERROR: enif_alloc returned NULL (out of memory?)\n");
         return 1;
     }
-    data->nr_of_loads_before = data->nr_of_loads_before + 1;
-    data->version = 0;
+    data->nr_of_loads_before = nr_of_loads_before + 1;
+    data->version = version;
+    assert(data->version == VERSION);
     data->lru_cache_max_size = filter_program_lru_cache_max_size;
     if (thrd_success !=
         tss_create(&data->thread_local_jq_state_lru_cache_key, NULL)) {

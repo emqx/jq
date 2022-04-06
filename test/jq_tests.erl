@@ -98,7 +98,7 @@ concurrent_queries_t_() ->
     {timeout, erlang:system_info(schedulers) * 3,
      fun() ->
              erlang:display_nl(),
-             [(ok = concurrent_queries_test(NrOfTestProcess, true, 500, 100))
+             [(ok = concurrent_queries_test(NrOfTestProcess, true, 500, 1000))
               || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],
              [(ok = concurrent_queries_test(NrOfTestProcess, true, 0, 100))
               || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],

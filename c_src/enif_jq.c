@@ -2,6 +2,9 @@
 #include "jv.h"
 #include "lru.h"
 
+#include <stdbool.h>
+#include <setjmp.h>
+
 #if __STDC_NO_THREADS__ == 0
 
 #include <threads.h>
@@ -39,8 +42,16 @@
 
 #endif
 
-#include <stdbool.h>
+static _Thread_local jmp_buf nomem_handling_jmp_buf;
 
+static void* jq_enif_alloc(size_t size) {
+    void * data = enif_alloc(size);
+    if (data == NULL) {
+        fprintf(stderr, "ERROR: enif_alloc returned NULL (out of memory?)\n");
+        longjmp(nomem_handling_jmp_buf, 1);
+    }
+    return data;
+}
 
 typedef struct JQStateCacheEntry_lru* JQStateCacheEntry_lru_ptr;
 static bool JQStateCacheEntry_lru_ptr_eq(
@@ -57,7 +68,7 @@ static bool JQStateCacheEntry_lru_ptr_eq(
 // pointers to all jq_state caches so they can be freed)
 DECLARE_DYNARR_DS(JQStateCacheEntry_lru_ptr,
                   static,
-                  enif_alloc,
+                  jq_enif_alloc,
                   enif_free,
                   JQStateCacheEntry_lru_ptr_eq,
                   1)
@@ -151,7 +162,7 @@ static bool jqstate_cache_entry_shall_evict(
 DECLARE_LRUCACHE_DS(
         JQStateCacheEntry,
         static,
-        enif_alloc,
+        jq_enif_alloc,
         enif_free,
         jqstate_cache_entry_eq,
         jqstate_cache_entry_hash,
@@ -255,7 +266,7 @@ jq_state* get_jq_state(
     }
     if (cache != NULL) {
         // Add new entry to cache
-        char * filter_program_string = enif_alloc(erl_jq_filter.size);
+        char * filter_program_string = jq_enif_alloc(erl_jq_filter.size);
         memcpy(filter_program_string, erl_jq_filter.data, erl_jq_filter.size);
         new_entry.state = jq;
         new_entry.string = filter_program_string;
@@ -380,6 +391,11 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
         error_msg_bin =
             make_error_msg_bin(env, error_message, strlen(error_message));
         goto out;
+    }
+    if (setjmp(nomem_handling_jmp_buf)) {
+        // Give badarg exception as this seems more reasonable than allocating and
+        // returning an error tuple when we have run out of memory
+        return enif_make_badarg(env);
     }
     // --------- get jq state and compile filter program if not cached ---------
     jq = get_jq_state(env, &error_msg_bin, &ret, erl_jq_filter, &remove_jq_object);
@@ -544,6 +560,10 @@ static int load_helper(
         return 1;
     }
     module_private_data* data = enif_alloc(sizeof(module_private_data));
+    if (data == NULL) {
+        fprintf(stderr, "ERROR: enif_alloc returned NULL (out of memory?)\n");
+        return 1;
+    }
     data->nr_of_loads_before = data->nr_of_loads_before + 1;
     data->version = 0;
     data->lru_cache_max_size = filter_program_lru_cache_max_size;

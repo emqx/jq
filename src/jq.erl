@@ -31,7 +31,7 @@ init() ->
     end,
     %% Start the jq application here since it needs to be started so
     %% we can read its properties
-    application:start(jq),
+    application:load(jq),
     CacheMaxSize =
         application:get_env(jq, jq_filter_program_lru_cache_max_size, 500),
     JQNifConfig =

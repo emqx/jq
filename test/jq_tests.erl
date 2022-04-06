@@ -95,7 +95,7 @@ concurrent_queries_test(NrOfTestProcesses, PrintThroughput, CacheSize, TestTimeM
     ok.
 
 concurrent_queries_t_() ->
-    {timeout, erlang:system_info(schedulers) * 3,
+    {timeout, erlang:system_info(schedulers) * 14,
      fun() ->
              erlang:display_nl(),
              [(ok = concurrent_queries_test(NrOfTestProcess, true, 500, 1000))

@@ -41,6 +41,7 @@ jobs:
           cp ./rebar3 /usr/local/bin/rebar3
       - name: release build
         run: |
+          export PATH="/usr/local/opt/bison/bin:$PATH"
           export PATH="/usr/local/opt/erlang@${{ matrix.otp }}/bin:$PATH"
           ${GITHUB_WORKSPACE}/rebar3 eunit
   build:

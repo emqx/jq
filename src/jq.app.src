@@ -1,5 +1,5 @@
 {application, jq,
- [{description, "An OTP library"},
+ [{description, "A library for executing JQ (https://stedolan.github.io/jq/) filter programs"},
   {vsn, "0.1.0"},
   {registered, []},
   {applications,

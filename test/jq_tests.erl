@@ -48,6 +48,70 @@ array_index_t_() ->
     ].
 array_index_test_() -> wrap_setup_cleanup(array_index_t_()).
 
+test_prog(ExpectedResStr, FilterProgStr, InputStr) ->
+    ExpectedResBin = erlang:list_to_binary(ExpectedResStr),
+    FilterProgBin = erlang:list_to_binary(FilterProgStr),
+    InputBin = erlang:list_to_binary(InputStr),
+    ?_assertEqual({ok, [ExpectedResBin]},
+                  jq:parse(
+                    FilterProgBin,
+                    InputBin)).
+
+advanced_filter_programs_t() ->
+    %% Programs here taken from https://jqplay.org/
+    [
+     test_prog(
+       "\"many\"",
+       "if . == 0 then \"zero\" elif . == 1 then \"one\" else \"many\" end",
+       "2"),
+     test_prog(
+       "\"The input was 42, which is one less than 43\"",
+       "\"The input was \\(.), which is one less than \\(.+1)\"",
+       "42"),
+     test_prog(
+       "\"The input was 42, which is one less than 43\"",
+       "\"The input was \\(.), which is one less than \\(.+1)\"",
+       "42"),
+     test_prog(
+       "[2,3,4]",
+       "map(.+1)",
+       "[1,2,3]"),
+     test_prog(
+       "[5,3,7]",
+       "map(select(. >= 2))",
+       "[1,5,3,0,7]"),
+     test_prog(
+       "[\"JSON\",\"XML\"]",
+       "[.[] | .name]",
+       "[{\"name\":\"JSON\", \"good\":true}, {\"name\":\"XML\", \"good\":false}]"),
+     test_prog(
+       "[42,\"something else\"]",
+       "[.foo, .bar]",
+       "{ \"foo\": 42, \"bar\": \"something else\", \"baz\": true}"),
+     test_prog(
+       "[\"Foo\",\"abc\",\"abcd\"]",
+       "keys",
+       "{\"abc\": 1, \"abcd\": 2, \"Foo\": 3}"),
+     test_prog(
+       "[2,6,1,0]",
+       "[.[] | length]",
+       "[[1,2], \"string\", {\"a\":2}, null]"),
+     test_prog(
+       "[{\"user\":\"stedolan\",\"title\":\"JQ Primer\"},{\"user\":\"stedolan\",\"title\":\"More JQ\"}]",
+       "[{user, title: .titles[]}]",
+       "{\"user\":\"stedolan\",\"titles\":[\"JQ Primer\", \"More JQ\"]}"),
+     test_prog(
+       "42",
+       ".foo",
+       "{\"foo\": 42, \"bar\": \"less interesting data\"}"),
+     test_prog(
+       "{\"name\":\"XML\",\"good\":false}",
+       ".[1]",
+       "[{\"name\":\"JSON\", \"good\":true}, {\"name\":\"XML\", \"good\":false}]")
+    ].
+advanced_filter_programs_test_() ->
+    wrap_setup_cleanup(advanced_filter_programs_t()).
+
 get_tests_cases() ->
     [ erlang:element(2, Test) ||
       Test <-
@@ -55,7 +119,8 @@ get_tests_cases() ->
                      parse_error_t_(),
                      process_error_t_(),
                      object_identifier_index_t_(),
-                     array_index_t_()])].
+                     array_index_t_(),
+                     advanced_filter_programs_t()])].
 
 repeat_tests(Parent, ShouldStop, [], AllTestFuns, Cnt) ->
     case counters:get(ShouldStop, 1) of
@@ -89,29 +154,32 @@ concurrent_queries_test(NrOfTestProcesses, PrintThroughput, CacheSize, TestTimeM
                             'Test Cases / Second',
                             Throughput,
                             'cache size',
-                            CacheSize})
+                            CacheSize});
+        false -> ok
     end,
     ok = jq:set_filter_program_lru_cache_max_size(OldCacheSize),
     ok.
 
+qubes_helper(0, SoFar) ->
+    SoFar;
+qubes_helper(N, SoFar) ->
+    qubes_helper(N div 2, [N | SoFar]).
+qubes(N) ->
+    qubes_helper(N, []).
+
 concurrent_queries_t_() ->
     {timeout, erlang:system_info(schedulers) * 14,
      fun() ->
+             NrOfScheds = erlang:system_info(schedulers),
+             Qubes = qubes(NrOfScheds),
              erlang:display_nl(),
-             [(ok = concurrent_queries_test(NrOfTestProcess, true, 500, 1000))
-              || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],
-             [(ok = concurrent_queries_test(NrOfTestProcess, true, 0, 100))
-              || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],
-             [(ok = concurrent_queries_test(NrOfTestProcess, true, 1, 100))
-              || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],
-             [(ok = concurrent_queries_test(NrOfTestProcess, true, 3, 100))
-              || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],
-             [(ok = concurrent_queries_test(NrOfTestProcess, true, 5, 100))
-              || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],
-             [(ok = concurrent_queries_test(NrOfTestProcess, true, 10, 100))
-              || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],
-             [(ok = concurrent_queries_test(NrOfTestProcess, true, 2, 100))
-              || NrOfTestProcess <- lists:seq(1, erlang:system_info(schedulers))],
+             [(ok = concurrent_queries_test(NrOfTestProcess, true, 500, 500))
+              || NrOfTestProcess <- Qubes],
+             ok = concurrent_queries_test(NrOfScheds, false, 0, 100),
+             ok = concurrent_queries_test(NrOfScheds, false, 1, 100),
+             ok = concurrent_queries_test(NrOfScheds, false, 3, 100),
+             ok = concurrent_queries_test(NrOfScheds, false, 10, 100),
+             ok = concurrent_queries_test(NrOfScheds, false, 2, 100),
              ok
      end}.
 concurrent_queries_test_() -> wrap_setup_cleanup(concurrent_queries_t_()).

@@ -18,3 +18,8 @@ _build
 *.iml
 rebar3.crashdump
 *~
+c_src/ext_libs
+c_src/jqc
+c_src/libs
+priv/*.dylib
+a.out

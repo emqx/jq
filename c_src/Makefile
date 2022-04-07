@@ -55,16 +55,19 @@ ifeq ($(UNAME_SYS), Darwin)
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -arch x86_64 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= -O3 -arch x86_64 -finline-functions -Wall
 	LDFLAGS ?= -arch x86_64 -flat_namespace -undefined suppress
+	LD_JQLIBS ?= -ljq -lonig
 else ifeq ($(UNAME_SYS), FreeBSD)
 	CC ?= cc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
+	LD_JQLIBS ?= -l:libjq.a -l:libonig.a
 else ifeq ($(UNAME_SYS), Linux)
 	CC ?= cc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
+	LD_JQLIBS ?= -l:libjq.a -l:libonig.a
 endif
 
 STDC_NO_THREAD := $(shell ./check_if_threads_header_exists.sh "$(CC)" "$(CFLAGS)" threads.h)
@@ -73,7 +76,7 @@ NO_PTHREAD := $(shell ./check_if_threads_header_exists.sh "$(CC)" "$(CFLAGS)" pt
 
 CFLAGS += -DVERSION=$(VERSION) -D__STDC_NO_THREADS__=$(STDC_NO_THREAD) -DJQ_NO_PTHREAD=$(NO_PTHREAD) -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR) -I $(DS_INCLUDE_DIR)
 CXXFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
-LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei -l:libjq.a -l:libonig.a
+LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei $(LD_JQLIBS)
 LDFLAGS += $(MEMSAN_FLAGS) -shared
 
 # Verbosity.
@@ -97,7 +100,10 @@ COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
 
 ifeq ($(UNAME_SYS), Darwin)
 $(C_SRC_OUTPUT): build_erl_jq
+	cp $(JQSRC_DIR)/.libs/$(LIBJQ) $(PRIV_DIR)/
+	cp $(JQSRC_DIR)/modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBONIG) "@loader_path/$(LIBONIG)" $(PRIV_DIR)/$(LIBJQ)
+	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBONIG) "@loader_path/$(LIBONIG)" $(C_SRC_OUTPUT)
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBJQ) "@loader_path/$(LIBJQ)" $(C_SRC_OUTPUT)
 else
 $(C_SRC_OUTPUT): build_erl_jq

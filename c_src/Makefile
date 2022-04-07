@@ -29,9 +29,9 @@ endif
 ifdef JQ_MEMSAN_DEBUG
 	MEMSAN_FLAGS := -fno-omit-frame-pointer -fsanitize=address
 	EXTRA_C_FLAGS := -fPIC -g -O0 $(MEMSAN_FLAGS) -I $(ERL_TOP)/erts/emulator/beam/ -I $(ERL_TOP)/erts/include/x86_64-pc-linux-gnu/
-	CC := clang
+	CC := gcc
 else
-	EXTRA_C_FLAGS := -fPIC -O3
+	EXTRA_C_FLAGS := -g -fPIC -O3
 	MEMSAN_FLAGS := 
 endif
 

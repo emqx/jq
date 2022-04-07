@@ -23,7 +23,7 @@ then
 
     ./configure
 
-    make -j
+    make -j 4
 
     cd erts/emulator
 
@@ -37,7 +37,7 @@ export PATH=$ERL_TOP/bin:$PATH
 
 cd "$SCRIPT_DIR/.."
 
-(rm -rf c_src/jqc || true)
+(rm -rf c_src/libs/jqc || true)
 (rm -rf c_src/ext_libs || true)
 rebar3 clean
 

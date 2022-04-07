@@ -2,6 +2,9 @@
 UNAME_SYS := $(shell uname -s)
 CURDIR := $(shell pwd)
 BASEDIR := $(abspath $(CURDIR)/..)
+VERSION := $(shell ./get_version.sh $(BASEDIR)) 
+VERSION := $(strip $(VERSION))
+JQERLMODSRC := $(BASEDIR)/src/jq.erl
 
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
@@ -43,7 +46,7 @@ ERL_INTERFACE_LIB_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~t
 
 PRIV_DIR = $(CURDIR)/../priv
 C_SRC_DIR = $(CURDIR)
-C_SRC_OUTPUT ?= $(PRIV_DIR)/$(PROJECT).so
+C_SRC_OUTPUT ?= $(PRIV_DIR)/$(PROJECT)$(VERSION).so
 
 # System type and C compiler/flags.
 
@@ -68,7 +71,7 @@ STDC_NO_THREAD := $(shell ./check_if_threads_header_exists.sh "$(CC)" "$(CFLAGS)
 
 NO_PTHREAD := $(shell ./check_if_threads_header_exists.sh "$(CC)" "$(CFLAGS)" pthread.h)
 
-CFLAGS += -D__STDC_NO_THREADS__=$(STDC_NO_THREAD) -DJQ_NO_PTHREAD=$(NO_PTHREAD) -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR) -I $(DS_INCLUDE_DIR)
+CFLAGS += -DVERSION=$(VERSION) -D__STDC_NO_THREADS__=$(STDC_NO_THREAD) -DJQ_NO_PTHREAD=$(NO_PTHREAD) -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR) -I $(DS_INCLUDE_DIR)
 CXXFLAGS += -fPIC -I $(ERTS_INCLUDE_DIR) -I $(ERL_INTERFACE_INCLUDE_DIR) -I $(JQ_INCLUDE_DIR)
 LDLIBS += -L $(ERL_INTERFACE_LIB_DIR) -L $(EXT_LIBS) -lei -l:libjq.a -l:libonig.a
 LDFLAGS += $(MEMSAN_FLAGS) -shared
@@ -104,17 +107,8 @@ build_erl_jq: $(OBJECTS)
 	@mkdir -p $(BASEDIR)/priv/
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 
-%.o: %.c $(LIBJQ_NAME)
+%.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC)
 	$(COMPILE_C) $(OUTPUT_OPTION) $<
-
-%.o: %.cc $(LIBJQ_NAME)
-	$(COMPILE_CPP) $(OUTPUT_OPTION) $<
-
-%.o: %.C $(LIBJQ_NAME)
-	$(COMPILE_CPP) $(OUTPUT_OPTION) $<
-
-%.o: %.cpp $(LIBJQ_NAME)
-	$(COMPILE_CPP) $(OUTPUT_OPTION) $<
 
 $(JQSRC):
 	git clone -b jq-1.6-emqx --single-branch $(JQURL) $(JQSRC_DIR)
@@ -130,7 +124,7 @@ $(RDSSRC):
 	      rm -r $(RDSSRC_DIR) && \
 	      false))
 
-$(LIBJQ_NAME): $(JQSRC) $(RDSSRC)
+$(LIBJQ_NAME): $(JQSRC)
 	#ls -lart .libs/ modules/oniguruma/src/.libs/
 	cd $(JQSRC_DIR) && \
 	git submodule update --init && \
@@ -142,8 +136,6 @@ $(LIBJQ_NAME): $(JQSRC) $(RDSSRC)
 	make -C modules/oniguruma/ && \
 	make src/builtin.inc && \
 	make libjq.la && \
-	cp .libs/$(LIBJQ) $(PRIV_DIR)/ && \
-	cp modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/ && \
 	(mkdir $(EXT_LIBS) || true) && \
 	cp .libs/libjq.* $(EXT_LIBS)/ && \
 	cp modules/oniguruma/src/.libs/libonig.* $(EXT_LIBS)/ && \

@@ -311,6 +311,7 @@ static int process_json(
   ERL_NIF_TERM list0 = enif_make_list(env, 0);
   while (jv_is_valid(result = jq_next(jq))) {
       ret = JQ_OK;
+      //printf("%d\n", jv_get_refcnt(result));
       jv res_jv_str = jv_dump_string(result, dumpopts);
       const char* res_str = jv_string_value(res_jv_str);
 
@@ -370,7 +371,7 @@ static ERL_NIF_TERM make_ok_return(ErlNifEnv* env, ERL_NIF_TERM result) {
 // NIF function taking a binaries for a filter program and a JSON text
 // and returning the result of processing the JSON text with the
 // filter program 
-static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+static ERL_NIF_TERM process_json_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     ERL_NIF_TERM error_msg_bin; 
     // ----------------------------- init --------------------------------------
     jq_state *jq = NULL;
@@ -623,16 +624,16 @@ static int upgrade(
 
 static ErlNifFunc nif_funcs[] = {
     /*
-       The parse_nif function seems to be very slow (at least when
+       The process_json_nif function seems to be very slow (at least when
        given filter programs that are not in the cache).
        The Erlang VM acts very strangely when it is not scheduled
        on a dirty scheduler (for example, timer:sleep() suspends
        for a much longer time than is should).
     */
-    {"parse", 2, parse_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"process_json", 2, process_json_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"set_filter_program_lru_cache_max_size", 1, set_filter_program_lru_cache_max_size_nif, 0},
     {"get_filter_program_lru_cache_max_size", 0, get_filter_program_lru_cache_max_size_nif, 0}
 };
 
-ERL_NIF_INIT(jq, nif_funcs, load, NULL, upgrade, unload)
+ERL_NIF_INIT(jq_nif, nif_funcs, load, NULL, upgrade, unload)
 

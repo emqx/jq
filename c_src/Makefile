@@ -4,10 +4,11 @@ CURDIR := $(shell pwd)
 BASEDIR := $(abspath $(CURDIR)/..)
 VERSION := $(shell ./get_version.sh $(BASEDIR)) 
 VERSION := $(strip $(VERSION))
-JQERLMODSRC := $(BASEDIR)/src/jq.erl
+JQERLMODSRC := $(BASEDIR)/src/jq_nif.erl
 
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
+NIF_MODULE := jq_nif
 JQURL := https://github.com/emqx/jqc.git
 JQSRC_DIR := $(CURDIR)/libs/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
@@ -17,7 +18,7 @@ RDSSRC := $(RDSSRC_DIR)/Makefile
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
 LIBJQ_PREFIX := /usr/local
 EXT_LIBS := $(CURDIR)/ext_libs
-
+ERL_PORT_PROGRAM := $(BASEDIR)/priv/erlang_jq_port
 ifeq ($(UNAME_SYS), Darwin)
 	LIBJQ := libjq.1.dylib
 	LIBONIG := libonig.4.dylib
@@ -46,7 +47,7 @@ ERL_INTERFACE_LIB_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~t
 
 PRIV_DIR = $(CURDIR)/../priv
 C_SRC_DIR = $(CURDIR)
-C_SRC_OUTPUT ?= $(PRIV_DIR)/$(PROJECT)$(VERSION).so
+C_SRC_OUTPUT ?= $(PRIV_DIR)/$(NIF_MODULE)$(VERSION).so
 
 # System type and C compiler/flags.
 
@@ -90,8 +91,11 @@ cpp_verbose = $(cpp_verbose_$(V))
 link_verbose_0 = @echo " LD    " $(@F);
 link_verbose = $(link_verbose_$(V))
 
-SOURCES := $(shell find $(C_SRC_DIR) -maxdepth 1 -type f \( -name "*.c" -o -name "*.C" -o -name "*.cc" -o -name "*.cpp" \))
+SOURCES := enif_jq.c
 OBJECTS = $(addsuffix .o, $(basename $(SOURCES)))
+
+PORT_SOURCES := erlang_jq_port.c erlang_jq_port_process.c
+PORT_OBJECTS = $(addsuffix .o, $(basename $(PORT_SOURCES)))
 
 COMPILE_C = $(c_verbose) $(CC) $(CFLAGS) $(CPPFLAGS) -c
 COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
@@ -109,11 +113,15 @@ else
 $(C_SRC_OUTPUT): build_erl_jq
 endif
 
-build_erl_jq: $(OBJECTS)
+build_erl_jq: $(OBJECTS) $(ERL_PORT_PROGRAM)
 	@mkdir -p $(BASEDIR)/priv/
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 
-%.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC)
+$(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
+	@mkdir -p $(BASEDIR)/priv/
+	$(CC) $(PORT_OBJECTS) -lm -L $(EXT_LIBS) -l:libjq.a -l:libonig.a -o $(ERL_PORT_PROGRAM)
+
+%.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC) $(PORT_SOURCES)
 	$(COMPILE_C) $(OUTPUT_OPTION) $<
 
 $(JQSRC):
@@ -149,6 +157,7 @@ $(LIBJQ_NAME): $(JQSRC)
 
 clean:
 	@rm -f $(OBJECTS)
+	@rm -f $(PORT_OBJECTS)
 	@rm -f $(PRIV_DIR)/*
 	@rm -rf $(EXT_LIBS)
 	@rm -rf $(JQSRC_DIR)/libjq.la $(LIBJQ_DIR)

@@ -311,7 +311,7 @@ static int process_json(
   ERL_NIF_TERM list0 = enif_make_list(env, 0);
   while (jv_is_valid(result = jq_next(jq))) {
       ret = JQ_OK;
-      jv res_jv_str = jv_dump_string(jv_copy(result), dumpopts);
+      jv res_jv_str = jv_dump_string(result, dumpopts);
       const char* res_str = jv_string_value(res_jv_str);
 
       ERL_NIF_TERM binterm;

@@ -52,19 +52,19 @@ C_SRC_OUTPUT ?= $(PRIV_DIR)/$(NIF_MODULE)$(VERSION).so
 # System type and C compiler/flags.
 
 ifeq ($(UNAME_SYS), Darwin)
-	CC ?= cc
+	CC := gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -arch x86_64 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= -O3 -arch x86_64 -finline-functions -Wall
 	LDFLAGS ?= -arch x86_64 -flat_namespace -undefined suppress
 	LD_JQLIBS ?= -ljq -lonig
 else ifeq ($(UNAME_SYS), FreeBSD)
-	CC ?= cc
+	CC := gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 	LD_JQLIBS ?= -l:libjq.a -l:libonig.a
 else ifeq ($(UNAME_SYS), Linux)
-	CC ?= cc
+	CC := gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
@@ -119,7 +119,7 @@ build_erl_jq: $(OBJECTS) $(ERL_PORT_PROGRAM)
 
 $(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
 	@mkdir -p $(BASEDIR)/priv/
-	$(CC) $(PORT_OBJECTS) -lm -L $(EXT_LIBS) -l:libjq.a -l:libonig.a -o $(ERL_PORT_PROGRAM)
+	$(CC) $(PORT_OBJECTS) -L $(EXT_LIBS) -l:libjq.a -l:libonig.a -lm -o $(ERL_PORT_PROGRAM)
 
 %.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC) $(PORT_SOURCES)
 	$(COMPILE_C) $(OUTPUT_OPTION) $<

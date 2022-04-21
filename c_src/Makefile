@@ -2,7 +2,7 @@
 UNAME_SYS := $(shell uname -s)
 CURDIR := $(shell pwd)
 BASEDIR := $(abspath $(CURDIR)/..)
-VERSION := $(shell ./get_version.sh $(BASEDIR)) 
+VERSION := $(shell escript get_version.erl "$(BASEDIR)/src/jq_nif.erl") 
 VERSION := $(strip $(VERSION))
 JQERLMODSRC := $(BASEDIR)/src/jq_nif.erl
 

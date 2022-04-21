@@ -69,7 +69,8 @@ start_recording(FileName) ->
             Expect = [ok || _ <- lists:seq(0, jq_port:nr_of_jq_port_servers() - 1)],
             Expect = [gen_server:call(port_server_by_id(Id),
                                       {start_recording,
-                                       erlang:iolist_to_binary([FileName, "\0"])}) ||
+                                       erlang:iolist_to_binary([FileName, "\0"])},
+                                      infinity) ||
                       Id <- lists:seq(0, jq_port:nr_of_jq_port_servers() - 1)],
             ok
     end,
@@ -81,7 +82,8 @@ stop_recording() ->
     fun() ->
             Expect = [ok || _ <- lists:seq(0, jq_port:nr_of_jq_port_servers() - 1)],
             Expect = [gen_server:call(port_server_by_id(Id),
-                                      stop_recording) ||
+                                      stop_recording,
+                                      infinity) ||
                       Id <- lists:seq(0, jq_port:nr_of_jq_port_servers() - 1)],
             ok
     end,
@@ -91,7 +93,8 @@ get_filter_program_lru_cache_max_size() ->
     Op =
     fun() ->
             gen_server:call(port_server(),
-                            get_filter_program_lru_cache_max_size)
+                            get_filter_program_lru_cache_max_size,
+                            infinity)
     end,
     do_op_ensure_started(Op).
 
@@ -100,7 +103,8 @@ set_filter_program_lru_cache_max_size(NewSize)
     Op =
     fun() ->
             gen_server:call(port_server(),
-                            {set_filter_program_lru_cache_max_size, NewSize})
+                            {set_filter_program_lru_cache_max_size, NewSize},
+                            infinity)
     end,
     do_op_ensure_started(Op).
 
@@ -109,7 +113,8 @@ process_json(FilterProgram, JSONText)
     Op =
     fun() ->
             gen_server:call(port_server(),
-                            {jq_process_json, FilterProgram, JSONText})
+                            {jq_process_json, FilterProgram, JSONText},
+                            infinity)
     end,
     do_op_ensure_started(Op).
 

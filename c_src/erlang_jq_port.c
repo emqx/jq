@@ -1,3 +1,15 @@
+/*
+ * Port program that processes JSON using jq filter programs
+ *
+ * The functions for sending and receiving packages in this
+ * file are inspired by the functions in the Erlang port
+ * tutorial which is available here:
+ *
+ * https://www.erlang.org/doc/tutorial/c_port.html
+ *
+ */
+
+
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>

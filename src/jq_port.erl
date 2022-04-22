@@ -132,8 +132,8 @@ remove_from_lookup_table(Id) ->
     persistent_term:erase({?MODULE, Id}).
 
 init(Id) ->
-    Port = start_port_program(),
     process_flag(trap_exit, true),
+    Port = start_port_program(),
     State = #{
       port => Port,
       id => Id,

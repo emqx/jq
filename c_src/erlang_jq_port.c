@@ -29,20 +29,20 @@ static char* err_tags[] = {
 };
 
 static ssize_t read_exact(byte *buf, size_t len) {
-    ssize_t i;
+    ssize_t last_read_len;
     size_t got = 0;
     do {
-        if ((i = read(0, buf + got, len - got)) <= 0) {
-            return i;
+        if ((last_read_len = read(0, buf + got, len - got)) <= 0) {
+            return last_read_len;
         }
-        got += i;
+        got += last_read_len;
     } while (got < len);
     if (record_input) {
         for (size_t i = 0; i < len; i++) {
             fputc(buf[i], record_input_file); 
         }
     }
-    return len;
+    return got;
 }
 
 static ssize_t write_exact(byte *buf, size_t len) {
@@ -63,7 +63,7 @@ typedef unsigned char byte;
 static byte* read_packet() {
     uint64_t len = 0;
     byte buf[PACKET_SIZE_LEN]; 
-    if ((len = read_exact(buf, PACKET_SIZE_LEN)) != PACKET_SIZE_LEN) {
+    if (read_exact(buf, PACKET_SIZE_LEN) != PACKET_SIZE_LEN) {
         return NULL;
     }
     len = 0;
@@ -72,6 +72,10 @@ static byte* read_packet() {
         len = len | addad_byte;
     }
     byte* command_content = malloc(len);
+    if (command_content == NULL) {
+        fprintf(stderr, "erl jq: malloc failed\n");
+        return NULL;
+    }
     if (read_exact(command_content, len) != len) {
         free(command_content);
         return NULL;
@@ -79,7 +83,7 @@ static byte* read_packet() {
     return command_content;
 }
 
-static int write_cmd(byte *buf, size_t len) {
+static int write_packet(byte *buf, size_t len) {
     byte li;
 
     for (int i = 0; i < PACKET_SIZE_LEN; i++) {
@@ -113,18 +117,18 @@ static bool handle_process_json() {
     if (res == JQ_OK) {
         size_t nr_of_result_objects = PortString_dynarr_size(&result_strings);
         int where = 0;
-        if (write_cmd((byte*)err_tags[JQ_OK], strlen(err_tags[JQ_OK])) <= 0) {
+        if (write_packet((byte*)err_tags[JQ_OK], strlen(err_tags[JQ_OK])) <= 0) {
             goto error_on_write_out_0;
         }
         char buf[64];
         sprintf(buf, "%lu", nr_of_result_objects);
-        if (write_cmd((byte*)buf, strlen(buf)) <= 0) {
+        if (write_packet((byte*)buf, strlen(buf)) <= 0) {
             goto error_on_write_out_0;
         }
 
         for (where = 0; where < nr_of_result_objects; where++) {
             PortString result = PortString_dynarr_item_at(&result_strings, where);
-            if (write_cmd((byte*)result.string, result.size) <= 0) {
+            if (write_packet((byte*)result.string, result.size) <= 0) {
                 goto error_on_write_out_0;
             }
             free(result.string);
@@ -144,13 +148,13 @@ error_on_write_out_0:
         return false;
     } else {
         const char* error_str = "error";
-        if (write_cmd((byte*)error_str, strlen(error_str)) <= 0) {
+        if (write_packet((byte*)error_str, strlen(error_str)) <= 0) {
             goto error_on_write_out_1;
         }
-        if (write_cmd((byte*)err_tags[res], strlen(err_tags[res])) <= 0) {
+        if (write_packet((byte*)err_tags[res], strlen(err_tags[res])) <= 0) {
             goto error_on_write_out_1;
         }
-        if (write_cmd((byte*)error_msg, strlen(error_msg)) <= 0) {
+        if (write_packet((byte*)error_msg, strlen(error_msg)) <= 0) {
             goto error_on_write_out_1;
         } 
         free(error_msg);
@@ -171,7 +175,7 @@ static bool handle_exit() {
         fclose(record_input_file);
     }
     const char* exiting_str = "exiting"; 
-    if (write_cmd((byte*)exiting_str, strlen(exiting_str)) <= 0) {
+    if (write_packet((byte*)exiting_str, strlen(exiting_str)) <= 0) {
         return false;
     } else {
         fflush(stdout);
@@ -190,7 +194,7 @@ static bool handle_start_record_input() {
         return false;
     }
     const char* ok_str = "ok";
-    if (write_cmd((byte*)ok_str, strlen(ok_str)) <= 0) {
+    if (write_packet((byte*)ok_str, strlen(ok_str)) <= 0) {
         free(recording_file_name);
         fclose(record_input_file);
         return false;
@@ -205,7 +209,7 @@ static bool handle_stop_record_input() {
         fclose(record_input_file);
     }
     const char* ok_str = "ok";
-    if (write_cmd((byte*)ok_str, strlen(ok_str)) <= 0) {
+    if (write_packet((byte*)ok_str, strlen(ok_str)) <= 0) {
         return false;
     }
     record_input = false;
@@ -220,7 +224,7 @@ static bool handle_set_filter_program_lru_cache_size() {
     int new_lru_size = atoi(size_str);
     erlang_jq_set_filter_program_lru_cache_size(new_lru_size);
     const char* ok_str = "ok";
-    if (write_cmd((byte*)ok_str, strlen(ok_str)) <= 0) {
+    if (write_packet((byte*)ok_str, strlen(ok_str)) <= 0) {
         return false;
     }
     return true;
@@ -229,7 +233,7 @@ static bool handle_set_filter_program_lru_cache_size() {
 static bool handle_get_filter_program_lru_cache_size() {
     char buffer[64];
     sprintf(buffer, "%d", erlang_jq_get_filter_program_lru_cache_size());
-    if (write_cmd((byte*)buffer, strlen(buffer)) <= 0) {
+    if (write_packet((byte*)buffer, strlen(buffer)) <= 0) {
         return false;
     }
     return true;
@@ -237,7 +241,7 @@ static bool handle_get_filter_program_lru_cache_size() {
 
 static bool handle_ping() {
     const char* response = "pong";
-    if (write_cmd((byte*)response, strlen(response)) <= 0) {
+    if (write_packet((byte*)response, strlen(response)) <= 0) {
         return false;
     }
     return true;

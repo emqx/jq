@@ -62,6 +62,8 @@ jobs:
           - debian10
           - debian9
           - rockylinux8
+          - alpine3.15.1
+          - alpine3.14
 
     container: "ghcr.io/emqx/emqx-builder/5.0-9:${{ matrix.elixir }}-${{ matrix.erl_otp }}-${{ matrix.os }}"
 

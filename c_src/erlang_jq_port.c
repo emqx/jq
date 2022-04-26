@@ -15,7 +15,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
-#include "erlang_jq_port_process.h"
+#include <stdbool.h>
+#include <setjmp.h>
+
+#include "port_nif_common.h"
+ 
+#include "lru.h"
 
 typedef unsigned char byte;
 #define PACKET_SIZE_LEN 4
@@ -29,16 +34,125 @@ typedef unsigned char byte;
 
 static bool record_input = false;
 static FILE* record_input_file;
+static int lru_cache_max_size;
+static JQStateCacheEntry_lru jq_state_cache;
 
-static char* err_tags[] = {
-    "ok",               // 0
-    "jq_err_unknown",   // 1
-    "jq_err_system",    // 2
-    "jq_err_badarg",    // 3
-    "jq_err_compile",   // 4
-    "jq_err_parse",     // 5
-    "jq_err_process"    // 6
-};
+static void* jq_port_alloc(size_t size) {
+    void * data = malloc(size);
+    if (data == NULL) {
+        fprintf(stderr, "ERROR: malloc returned NULL (out of memory?)\n");
+        exit(1);
+    }
+    return data;
+}
+
+
+static void erlang_jq_set_filter_program_lru_cache_size(int new_size) {
+    lru_cache_max_size = new_size;
+}
+
+static int erlang_jq_get_filter_program_lru_cache_size() {
+    return lru_cache_max_size;
+}
+
+static void erlang_jq_port_process_init() {
+    lru_cache_max_size = 500;
+    set_erljq_alloc(jq_port_alloc);
+    set_erljq_free(free);
+    JQStateCacheEntry_lru_init(&jq_state_cache);
+}
+
+static void erlang_jq_port_process_destroy() {
+    JQStateCacheEntry_lru_destroy(&jq_state_cache);
+}
+
+
+// Returns the jq_state cache for the current thread (creates a new cache
+// if the current thread don't already have a cache). 
+static JQStateCacheEntry_lru * get_jqstate_cache() {
+    if (lru_cache_max_size == 0) {
+        return NULL;
+    }
+    JQStateCacheEntry_lru * cache = &jq_state_cache;
+    // The max size can change dynamically
+    size_t current_size = JQStateCacheEntry_lru_size(cache);
+    if (current_size > lru_cache_max_size) {
+        while (JQStateCacheEntry_lru_evict_if_condition_is_true(cache)) {
+            // Continue until we have reduced the size to the max size
+        }
+    }
+    return cache;
+}
+
+// Returns a jq_state containing compiled version of
+// erl_jq_filter if compiling is successful and NULL
+// otherwise (the jq_state might get fetched from the
+// thread local cache if there is already a jq_state
+// for erl_jq_filter)
+static jq_state* get_jq_state(
+        int* ret,
+        char** error_message_wb,
+        char* erl_jq_filter,
+        int* remove_jq_object) {
+    JQStateCacheEntry_lru * cache = get_jqstate_cache();
+    JQStateCacheEntry new_entry;
+    if (lru_cache_max_size > 0) {
+        // Check if there is already a jq filter in the LRU cache
+        jqstate_cache_entry_init(&new_entry, erl_jq_filter, &lru_cache_max_size);
+        JQStateCacheEntry * cache_entry =
+            JQStateCacheEntry_lru_get(cache, new_entry);
+        if (cache_entry != NULL) {
+            // Return jq_state from cache
+            return cache_entry->state;
+        }
+    } else {
+        cache = NULL;
+    }
+    // No entry in the cache so we have to create a new jq_state
+    jq_state *jq = create_jq_state_common(erl_jq_filter, ret, error_message_wb);
+    if (jq == NULL) {
+        return NULL;
+    }
+    if (cache != NULL) {
+        // Add new entry to cache
+        size_t program_size = strlen(erl_jq_filter) + 1;
+        char * filter_program_string = erljq_alloc(program_size);
+        memcpy(filter_program_string, erl_jq_filter, program_size);
+        new_entry.state = jq;
+        new_entry.string = filter_program_string;
+        JQStateCacheEntry_lru_add(cache, new_entry);
+    } else {
+        *remove_jq_object = 1;
+    }
+    return jq;
+}
+
+static int erlang_jq_port_process_json(
+        char* erl_jq_filter,
+        char* json_text,
+        int flags,
+        int dumpopts,
+        String_dynarr* result_strings,
+        char** error_msg_wb) {
+
+    int ret = JQ_OK;
+    int remove_jq_object = 0;
+    jq_state * jq = get_jq_state(&ret, error_msg_wb, erl_jq_filter, &remove_jq_object);
+    if (jq == NULL) {
+        return ret;
+    }
+    ret = process_json_common(
+            jq,
+            json_text,
+            flags,
+            dumpopts,
+            result_strings,
+            error_msg_wb);
+    if (remove_jq_object) {
+        jq_teardown(&jq);
+    }
+    return ret;
+}
 
 static ssize_t read_exact(byte *buf, size_t len) {
     ssize_t last_read_len;
@@ -83,13 +197,9 @@ static byte* read_packet() {
         size_t addad_byte = ((size_t)buf[PACKET_SIZE_LEN - (i+1)] << (i*sizeof(byte)));
         len = len | addad_byte;
     }
-    byte* command_content = malloc(len);
-    if (command_content == NULL) {
-        fprintf(stderr, "erl jq: malloc failed\n");
-        return NULL;
-    }
+    byte* command_content = erljq_alloc(len);
     if (read_exact(command_content, len) != len) {
-        free(command_content);
+        erljq_free(command_content);
         return NULL;
     }
     return command_content;
@@ -113,11 +223,11 @@ static bool handle_process_json() {
     }
     byte * json_data = read_packet();
     if (json_data == NULL) {
-        free(jq_program);
+        erljq_free(jq_program);
         return false;
     }
-    PortString_dynarr result_strings;
-    PortString_dynarr_init(&result_strings);
+    String_dynarr result_strings;
+    String_dynarr_init(&result_strings);
     char* error_msg = NULL;
     int res = erlang_jq_port_process_json(
             (char*)jq_program,
@@ -127,7 +237,7 @@ static bool handle_process_json() {
             &result_strings,
             &error_msg);
     if (res == JQ_OK) {
-        size_t nr_of_result_objects = PortString_dynarr_size(&result_strings);
+        size_t nr_of_result_objects = String_dynarr_size(&result_strings);
         int where = 0;
         if (write_packet((byte*)err_tags[JQ_OK], strlen(err_tags[JQ_OK])) <= 0) {
             goto error_on_write_out_0;
@@ -139,24 +249,24 @@ static bool handle_process_json() {
         }
 
         for (where = 0; where < nr_of_result_objects; where++) {
-            PortString result = PortString_dynarr_item_at(&result_strings, where);
+            String result = String_dynarr_item_at(&result_strings, where);
             if (write_packet((byte*)result.string, result.size) <= 0) {
                 goto error_on_write_out_0;
             }
-            free(result.string);
+            erljq_free(result.string);
         }
-        PortString_dynarr_destroy(&result_strings);
-        free(jq_program);
-        free(json_data);
+        String_dynarr_destroy(&result_strings);
+        erljq_free(jq_program);
+        erljq_free(json_data);
         return true;
 error_on_write_out_0:
         for (where = 0; where < nr_of_result_objects; where++) {
-            PortString result = PortString_dynarr_item_at(&result_strings, where);
-            free(result.string);
+            String result = String_dynarr_item_at(&result_strings, where);
+            erljq_free(result.string);
         }
-        PortString_dynarr_destroy(&result_strings);
-        free(jq_program);
-        free(json_data);
+        String_dynarr_destroy(&result_strings);
+        erljq_free(jq_program);
+        erljq_free(json_data);
         return false;
     } else {
         const char* error_str = "error";
@@ -169,14 +279,14 @@ error_on_write_out_0:
         if (write_packet((byte*)error_msg, strlen(error_msg)) <= 0) {
             goto error_on_write_out_1;
         } 
-        free(error_msg);
-        free(jq_program);
-        free(json_data);
+        erljq_free(error_msg);
+        erljq_free(jq_program);
+        erljq_free(json_data);
         return true;
 error_on_write_out_1:
-        free(error_msg);
-        free(jq_program);
-        free(json_data);
+        erljq_free(error_msg);
+        erljq_free(jq_program);
+        erljq_free(json_data);
         return false;
     }
 }
@@ -202,16 +312,16 @@ static bool handle_start_record_input() {
     }
     record_input_file = fopen(recording_file_name, "wb");
     if (record_input_file == NULL) {
-        free(recording_file_name);
+        erljq_free(recording_file_name);
         return false;
     }
     const char* ok_str = "ok";
     if (write_packet((byte*)ok_str, strlen(ok_str)) <= 0) {
-        free(recording_file_name);
+        erljq_free(recording_file_name);
         fclose(record_input_file);
         return false;
     }
-    free(recording_file_name);
+    erljq_free(recording_file_name);
     record_input = true;
     return true;
 }
@@ -270,28 +380,28 @@ int main() {
         }
         LOG_PRINT("%s\n", command);
         if (strcmp((char*)command, "process_json") == 0) {
-            free(command);
+            erljq_free(command);
             if (!handle_process_json()) {
                 goto error_return;
             }
        } else if (strcmp((char*)command, "ping") == 0) {
-            free(command);
+            erljq_free(command);
             // Used to check if the port program is up and running without any problems
             if (!handle_ping()) {
                 goto error_return;
             }
         } else if (strcmp((char*)command, "exit") == 0) {
-            free(command);
+            erljq_free(command);
             // Normal exit cumunicate back that we are exiting
             return !handle_exit();
         } else if (strcmp((char*)command, "set_filter_program_lru_cache_max_size") == 0) {
-            free(command);
+            erljq_free(command);
             // Normal exit cumunicate back that we are exiting
             if (!handle_set_filter_program_lru_cache_size()) {
                 goto error_return;
             }
         } else if (strcmp((char*)command, "get_filter_program_lru_cache_max_size") == 0) {
-            free(command);
+            erljq_free(command);
             // Normal exit cumunicate back that we are exiting
             if (!handle_get_filter_program_lru_cache_size()) {
                 goto error_return;
@@ -300,12 +410,12 @@ int main() {
         // Recoring input is a debuging functionality that can be used to
         // replay a port program scenario without starting Erlang
         else if (strcmp((char*)command, "start_record_input") == 0) {
-            free(command);
+            erljq_free(command);
             if (!handle_start_record_input()) {
                 goto error_return;
             }
         } else if (strcmp((char*)command, "stop_record_input") == 0) {
-            free(command);
+            erljq_free(command);
             if (!handle_stop_record_input()) {
                 goto error_return;
             }

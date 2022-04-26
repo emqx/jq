@@ -4,15 +4,30 @@
 
 -include_lib("eunit/include/eunit.hrl").
 
+ %% -define(TEST_ONLY_NIF, 1).
+
+
+-ifdef(TEST_ONLY_NIF).
 wrap_setup_cleanup(TestCases) ->
-    [{setup,
+    [
+     {setup,
      fun setup_nif/0,
      fun cleanup_nif/1,
-     TestCases},
-    {setup,
-     fun setup_port/0,
-     fun cleanup_port/1,
-     TestCases}].
+     TestCases}
+    ].
+-else.
+wrap_setup_cleanup(TestCases) ->
+    [
+     {setup,
+     fun setup_nif/0,
+     fun cleanup_nif/1,
+     TestCases}
+    ,{setup,
+      fun setup_port/0,
+      fun cleanup_port/1,
+      TestCases}
+    ].
+-endif.
 
 change_get_cache_size_t() ->
     [ ?_assertMatch(ok, jq:set_filter_program_lru_cache_max_size(42)),
@@ -22,10 +37,10 @@ change_get_cache_size_test_() -> wrap_setup_cleanup(change_get_cache_size_t()).
 
 empty_input_t_() ->
     [
-     ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"">>))
-    , ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<" ">>))
-    , ?_assertMatch({ok,[<<"{}">>]}, jq:process_json(<<"">>, <<"{}">>))
-    , ?_assertMatch({ok,[<<"{}">>]}, jq:process_json(<<" ">>, <<"{}">>)) ].
+       ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"">>))
+     , ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<" ">>))
+     , ?_assertMatch({ok,[<<"{}">>]}, jq:process_json(<<"">>, <<"{}">>))
+     , ?_assertMatch({ok,[<<"{}">>]}, jq:process_json(<<" ">>, <<"{}">>))].
 empty_input_test_() -> wrap_setup_cleanup(empty_input_t_()).
 
 parse_error_t_() ->
@@ -188,12 +203,12 @@ concurrent_queries_t_() ->
              ok = concurrent_queries_test(NrOfScheds, false, 3, 100),
              ok = concurrent_queries_test(NrOfScheds, false, 10, 100),
              ok = concurrent_queries_test(NrOfScheds, false, 2, 100),
-             jq_port:start_recording("./test/my_test_record.bin"),
              ok = concurrent_queries_test(NrOfScheds, false, 100, 150),
              ok
      end}.
 concurrent_queries_test_() -> wrap_setup_cleanup(concurrent_queries_t_()).
 
+-ifndef(TEST_ONLY_NIF).
 port_program_valgrind_test_() ->
     {timeout, 30,
      fun() ->
@@ -210,6 +225,7 @@ port_program_valgrind_test_() ->
                      error("Valgrind reported error(s)")
              end
      end}.
+-endif.
 
 setup_nif() ->
     PrevImpMod = jq:implementation_module(),
@@ -217,8 +233,8 @@ setup_nif() ->
     PrevImpMod.
 
 cleanup_nif(PrevImpMod) ->
-    true = code:delete(jq),
-    true = code:soft_purge(jq),
+    true = code:delete(jq_nif),
+    true = code:soft_purge(jq_nif),
     jq:set_implementation_module(PrevImpMod).
 
 setup_port() ->

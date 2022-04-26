@@ -30,7 +30,7 @@ endif
 ifdef JQ_MEMSAN_DEBUG
 	MEMSAN_FLAGS := -fno-omit-frame-pointer -fsanitize=address
 	EXTRA_C_FLAGS := -fPIC -g -O0 $(MEMSAN_FLAGS) -I $(ERL_TOP)/erts/emulator/beam/ -I $(ERL_TOP)/erts/include/x86_64-pc-linux-gnu/
-	CC := gcc
+	CC := clang
 else
 	EXTRA_C_FLAGS := -g -fPIC -O3
 	MEMSAN_FLAGS := 
@@ -52,19 +52,19 @@ C_SRC_OUTPUT ?= $(PRIV_DIR)/$(NIF_MODULE)$(VERSION).so
 # System type and C compiler/flags.
 
 ifeq ($(UNAME_SYS), Darwin)
-	CC := gcc
+	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -arch x86_64 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= -O3 -arch x86_64 -finline-functions -Wall
 	LDFLAGS ?= -arch x86_64 -flat_namespace -undefined suppress
 	LD_JQLIBS ?= -ljq -lonig
 else ifeq ($(UNAME_SYS), FreeBSD)
-	CC := gcc
+	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 	LD_JQLIBS ?= -l:libjq.a -l:libonig.a
 else ifeq ($(UNAME_SYS), Linux)
-	CC := gcc
+	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
@@ -91,10 +91,10 @@ cpp_verbose = $(cpp_verbose_$(V))
 link_verbose_0 = @echo " LD    " $(@F);
 link_verbose = $(link_verbose_$(V))
 
-SOURCES := enif_jq.c
+SOURCES := erlang_jq_nif.c port_nif_common.c
 OBJECTS = $(addsuffix .o, $(basename $(SOURCES)))
 
-PORT_SOURCES := erlang_jq_port.c erlang_jq_port_process.c
+PORT_SOURCES := erlang_jq_port.c port_nif_common.c
 PORT_OBJECTS = $(addsuffix .o, $(basename $(PORT_SOURCES)))
 
 COMPILE_C = $(c_verbose) $(CC) $(CFLAGS) $(CPPFLAGS) -c
@@ -113,7 +113,11 @@ else
 $(C_SRC_OUTPUT): build_erl_jq
 endif
 
-build_erl_jq: $(OBJECTS) $(ERL_PORT_PROGRAM)
+ifeq ($(JQ_MEMSAN_DEBUG), 1)
+build_erl_jq: $(OBJECTS) port_nif_common.h
+else
+build_erl_jq: $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
+endif
 	@mkdir -p $(BASEDIR)/priv/
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 
@@ -133,7 +137,7 @@ $(JQSRC):
 
 $(RDSSRC):
 	git clone -b master --single-branch $(RDSURL) $(RDSSRC_DIR)
-	((cd $(RDSSRC_DIR) && git checkout 17b1b606b2f7b5fa6556ded6bfbbaf36c165ee84) || \
+	((cd $(RDSSRC_DIR) && git checkout 77c7a96416065a839417e5078fce9ba9a14982dc) || \
 	     (echo "Failed to check out c_reusable_data_structures commit" && \
 	      rm -r $(RDSSRC_DIR) && \
 	      false))
@@ -160,5 +164,6 @@ clean:
 	@rm -f $(PORT_OBJECTS)
 	@rm -f $(PRIV_DIR)/*
 	@rm -rf $(EXT_LIBS)
-	@rm -rf $(JQSRC_DIR)/libjq.la $(LIBJQ_DIR)
+	@rm -rf $(JQSRC_DIR)
+	@rm -f $(ERL_PORT_PROGRAM)
 

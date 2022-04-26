@@ -13,10 +13,15 @@ export ERL_TOP=`pwd`
 export PATH=$ERL_TOP/bin:$PATH
     
 cd "$SCRIPT_DIR/.."
-
-(JQ_MEMSAN_DEBUG=1 rebar3 eunit || true)
+export JQ_MEMSAN_DEBUG=1
+#rebar3 as addr_san_test eunit
+rebar3 eunit
 echo "The asan error above can most likely be ignored if everything below runs without problems"
 
+echo "IMPORTANT!!!!"
+echo "The following command does not work as expected: rebar3 as addr_san_test eunit (maybe the profile does not have any effect on the test?)"
+echo "You therefore need to uncomment -define(TEST_ONLY_NIF, 1). in jq_tests.erl before running this script!"
+echo "IMPORTANT!!!!"
 echo "============================================"
 echo "Running the eunit test with address sanitizer"
 echo "============================================"

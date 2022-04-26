@@ -275,8 +275,8 @@ handle_call({jq_process_json, FilterProgram, JSONText}, _From, State) ->
     Port = state_port(State),
     try
         send_msg_to_port(Port, <<"process_json\0">>), 
-        send_msg_to_port(Port, [FilterProgram, 0]), 
-        send_msg_to_port(Port, [JSONText, 0]), 
+        send_msg_to_port(Port, FilterProgram), 
+        send_msg_to_port(Port, JSONText), 
         {reply, receive_process_json_result(Port), new_state_after_process_json(State)}
     catch
         ErrorClass:Reason ->

@@ -36,12 +36,20 @@
     Reason :: term().
 
 process_json(FilterProgram, JSONText)
-  when is_binary(FilterProgram), is_binary(JSONText) ->
-    Mod = implementation_module(),
-    Mod:process_json(FilterProgram, JSONText);
+  when is_binary(FilterProgram), is_binary(JSONText), size(FilterProgram) > 0, size(JSONText) > 0 ->
+    case {binary_part(FilterProgram, size(FilterProgram) - 1, 1),
+          binary_part(JSONText, size(JSONText) - 1, 1)} of
+        {<<"\0">>, <<"\0">>} ->
+            %% erlang:display(null_terminated),
+            Mod = implementation_module(),
+            Mod:process_json(FilterProgram, JSONText);
+        A ->
+            %% erlang:display(A),
+            process_json([FilterProgram], [JSONText])
+    end;
 process_json(FilterProgram, JSONText) ->
-    process_json(erlang:iolist_to_binary(FilterProgram),
-                 erlang:iolist_to_binary(JSONText)). 
+    process_json(erlang:iolist_to_binary([FilterProgram, <<"\0">>]),
+                 erlang:iolist_to_binary([JSONText, <<"\0">>])). 
 
 %% @doc Get the implementation module that is currently used.
 

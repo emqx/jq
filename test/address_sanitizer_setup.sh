@@ -47,7 +47,7 @@ cp "$ERL_TOP/lib/erl_interface/obj/x86_64-pc-linux-gnu/libei.a" c_src/ext_libs/
 
 export JQ_MEMSAN_DEBUG=1
 
-rebar3 as addr_san_test compile
+rebar3 as addr_san_test,test compile
 
 echo "======================================================================================="
 echo "Things are now set up to run tests with address sanitizer (if nothing has gone wrong)"

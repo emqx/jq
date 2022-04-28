@@ -43,8 +43,7 @@ process_json(FilterProgram, JSONText)
             %% erlang:display(null_terminated),
             Mod = implementation_module(),
             Mod:process_json(FilterProgram, JSONText);
-        A ->
-            %% erlang:display(A),
+        _ ->
             process_json([FilterProgram], [JSONText])
     end;
 process_json(FilterProgram, JSONText) ->

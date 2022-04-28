@@ -27,7 +27,10 @@ else
 	LIBONIG := libonig.so
 endif
 
-ifdef JQ_MEMSAN_DEBUG
+ifdef NORMAL_DEBUG
+	EXTRA_C_FLAGS := -fPIC -g -O0
+	CC := clang
+else ifdef JQ_MEMSAN_DEBUG
 	MEMSAN_FLAGS := -fno-omit-frame-pointer -fsanitize=address
 	EXTRA_C_FLAGS := -fPIC -g -O0 $(MEMSAN_FLAGS) -I $(ERL_TOP)/erts/emulator/beam/ -I $(ERL_TOP)/erts/include/x86_64-pc-linux-gnu/
 	CC := clang

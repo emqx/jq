@@ -110,8 +110,11 @@ $(C_SRC_OUTPUT): build_erl_jq
 	cp $(JQSRC_DIR)/.libs/$(LIBJQ) $(PRIV_DIR)/
 	cp $(JQSRC_DIR)/modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBONIG) "@loader_path/$(LIBONIG)" $(PRIV_DIR)/$(LIBJQ)
+	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBONIG) "@loader_path/$(LIBONIG)" $(PRIV_DIR)/$(LIBJQ)
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBONIG) "@loader_path/$(LIBONIG)" $(C_SRC_OUTPUT)
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBJQ) "@loader_path/$(LIBJQ)" $(C_SRC_OUTPUT)
+	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBONIG) "@loader_path/$(LIBONIG)" $(ERL_PORT_PROGRAM)
+	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBJQ) "@loader_path/$(LIBJQ)" $(ERL_PORT_PROGRAM)
 else
 $(C_SRC_OUTPUT): build_erl_jq
 endif
@@ -126,7 +129,7 @@ endif
 
 $(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
 	@mkdir -p $(BASEDIR)/priv/
-	$(CC) $(PORT_OBJECTS) -L $(EXT_LIBS) -l:libjq.a -l:libonig.a -lm -o $(ERL_PORT_PROGRAM)
+	$(CC) $(PORT_OBJECTS) -L $(EXT_LIBS) $(LD_JQLIBS) -lm -o $(ERL_PORT_PROGRAM)
 
 %.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC) $(PORT_SOURCES)
 	$(COMPILE_C) $(OUTPUT_OPTION) $<
@@ -168,5 +171,6 @@ clean:
 	@rm -f $(PRIV_DIR)/*
 	@rm -rf $(EXT_LIBS)
 	@rm -rf $(JQSRC_DIR)
+	@rm -rf $(RDSSRC_DIR)
 	@rm -f $(ERL_PORT_PROGRAM)
 

@@ -35,4 +35,7 @@ compile_commands.json
 otp/
 tags
 test/my_test_record.bin
-c_src/a.out
+c_src/a.out*
+c_src/rebar.lock
+.vscode
+

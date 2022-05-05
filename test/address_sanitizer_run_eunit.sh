@@ -13,9 +13,8 @@ export ERL_TOP=`pwd`
 export PATH=$ERL_TOP/bin:$PATH
     
 cd "$SCRIPT_DIR/.."
-
-(JQ_MEMSAN_DEBUG=1 rebar3 eunit || true)
-echo "The asan error above can most likely be ignored if everything below runs without problems"
+export JQ_MEMSAN_DEBUG=1
+rebar3 as addr_san_test,test compile
 
 echo "============================================"
 echo "Running the eunit test with address sanitizer"
@@ -31,7 +30,7 @@ mkdir "$ASAN_LOG_DIR"
 # https://github.com/google/sanitizers/issues/1322
 # https://github.com/neovim/neovim/pull/17213
 
-ASAN_OPTIONS=intercept_tls_get_addr=0 cerl -asan -pa _build/test/lib/jq/test/ -pa _build/test/lib/jq/ebin/ -eval "jq_tests:test(),erlang:halt()" 
+ASAN_OPTIONS=intercept_tls_get_addr=0 cerl -asan -noshell -pa _build/addr_san_test+test/lib/jq/test -pa _build/addr_san_test+test/lib/jq/ebin -eval "jq_tests:test(),erlang:halt()" 
 
 echo "============================================"
 echo "The address sanitizer log (located in \"$ASAN_LOG_DIR\") will now be printed:"

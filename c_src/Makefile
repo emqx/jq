@@ -2,12 +2,13 @@
 UNAME_SYS := $(shell uname -s)
 CURDIR := $(shell pwd)
 BASEDIR := $(abspath $(CURDIR)/..)
-VERSION := $(shell ./get_version.sh $(BASEDIR)) 
+VERSION := $(shell escript get_version.erl "$(BASEDIR)/src/jq_nif.erl") 
 VERSION := $(strip $(VERSION))
-JQERLMODSRC := $(BASEDIR)/src/jq.erl
+JQERLMODSRC := $(BASEDIR)/src/jq_nif.erl
 
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
+NIF_MODULE := jq_nif
 JQURL := https://github.com/emqx/jqc.git
 JQSRC_DIR := $(CURDIR)/libs/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
@@ -17,7 +18,7 @@ RDSSRC := $(RDSSRC_DIR)/Makefile
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
 LIBJQ_PREFIX := /usr/local
 EXT_LIBS := $(CURDIR)/ext_libs
-
+ERL_PORT_PROGRAM := $(BASEDIR)/priv/erlang_jq_port
 ifeq ($(UNAME_SYS), Darwin)
 	LIBJQ := libjq.1.dylib
 	LIBONIG := libonig.4.dylib
@@ -26,10 +27,13 @@ else
 	LIBONIG := libonig.so
 endif
 
-ifdef JQ_MEMSAN_DEBUG
+ifdef NORMAL_DEBUG
+	EXTRA_C_FLAGS := -fPIC -g -O0
+	CC := clang
+else ifdef JQ_MEMSAN_DEBUG
 	MEMSAN_FLAGS := -fno-omit-frame-pointer -fsanitize=address
 	EXTRA_C_FLAGS := -fPIC -g -O0 $(MEMSAN_FLAGS) -I $(ERL_TOP)/erts/emulator/beam/ -I $(ERL_TOP)/erts/include/x86_64-pc-linux-gnu/
-	CC := gcc
+	CC := clang
 else
 	EXTRA_C_FLAGS := -g -fPIC -O3
 	MEMSAN_FLAGS := 
@@ -46,24 +50,24 @@ ERL_INTERFACE_LIB_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~t
 
 PRIV_DIR = $(CURDIR)/../priv
 C_SRC_DIR = $(CURDIR)
-C_SRC_OUTPUT ?= $(PRIV_DIR)/$(PROJECT)$(VERSION).so
+C_SRC_OUTPUT ?= $(PRIV_DIR)/$(NIF_MODULE)$(VERSION).so
 
 # System type and C compiler/flags.
 
 ifeq ($(UNAME_SYS), Darwin)
-	CC ?= cc
+	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -arch x86_64 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= -O3 -arch x86_64 -finline-functions -Wall
 	LDFLAGS ?= -arch x86_64 -flat_namespace -undefined suppress
 	LD_JQLIBS ?= -ljq -lonig
 else ifeq ($(UNAME_SYS), FreeBSD)
-	CC ?= cc
+	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 	LD_JQLIBS ?= -l:libjq.a -l:libonig.a
 else ifeq ($(UNAME_SYS), Linux)
-	CC ?= cc
+	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
@@ -90,8 +94,11 @@ cpp_verbose = $(cpp_verbose_$(V))
 link_verbose_0 = @echo " LD    " $(@F);
 link_verbose = $(link_verbose_$(V))
 
-SOURCES := $(shell find $(C_SRC_DIR) -maxdepth 1 -type f \( -name "*.c" -o -name "*.C" -o -name "*.cc" -o -name "*.cpp" \))
+SOURCES := erlang_jq_nif.c port_nif_common.c
 OBJECTS = $(addsuffix .o, $(basename $(SOURCES)))
+
+PORT_SOURCES := erlang_jq_port.c port_nif_common.c
+PORT_OBJECTS = $(addsuffix .o, $(basename $(PORT_SOURCES)))
 
 COMPILE_C = $(c_verbose) $(CC) $(CFLAGS) $(CPPFLAGS) -c
 COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
@@ -109,11 +116,19 @@ else
 $(C_SRC_OUTPUT): build_erl_jq
 endif
 
-build_erl_jq: $(OBJECTS)
+ifeq ($(JQ_MEMSAN_DEBUG), 1)
+build_erl_jq: $(OBJECTS) port_nif_common.h
+else
+build_erl_jq: $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
+endif
 	@mkdir -p $(BASEDIR)/priv/
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 
-%.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC)
+$(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
+	@mkdir -p $(BASEDIR)/priv/
+	$(CC) $(PORT_OBJECTS) -L $(EXT_LIBS) -l:libjq.a -l:libonig.a -lm -o $(ERL_PORT_PROGRAM)
+
+%.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC) $(PORT_SOURCES)
 	$(COMPILE_C) $(OUTPUT_OPTION) $<
 
 $(JQSRC):
@@ -125,7 +140,7 @@ $(JQSRC):
 
 $(RDSSRC):
 	git clone -b master --single-branch $(RDSURL) $(RDSSRC_DIR)
-	((cd $(RDSSRC_DIR) && git checkout 17b1b606b2f7b5fa6556ded6bfbbaf36c165ee84) || \
+	((cd $(RDSSRC_DIR) && git checkout 77c7a96416065a839417e5078fce9ba9a14982dc) || \
 	     (echo "Failed to check out c_reusable_data_structures commit" && \
 	      rm -r $(RDSSRC_DIR) && \
 	      false))
@@ -149,7 +164,9 @@ $(LIBJQ_NAME): $(JQSRC)
 
 clean:
 	@rm -f $(OBJECTS)
+	@rm -f $(PORT_OBJECTS)
 	@rm -f $(PRIV_DIR)/*
 	@rm -rf $(EXT_LIBS)
-	@rm -rf $(JQSRC_DIR)/libjq.la $(LIBJQ_DIR)
+	@rm -rf $(JQSRC_DIR)
+	@rm -f $(ERL_PORT_PROGRAM)
 

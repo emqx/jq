@@ -1,12 +1,33 @@
 -module(jq_tests).
 
+-export([generate_port_program_input/1]).
+
 -include_lib("eunit/include/eunit.hrl").
 
+ %% -define(TEST_ONLY_NIF, 1).
+
+
+-ifdef(TEST_ONLY_NIF).
 wrap_setup_cleanup(TestCases) ->
-    {setup,
-     fun setup/0,
-     fun cleanup/1,
-     TestCases}.
+    [
+     {setup,
+     fun setup_nif/0,
+     fun cleanup_nif/1,
+     TestCases}
+    ].
+-else.
+wrap_setup_cleanup(TestCases) ->
+    [
+     {setup,
+     fun setup_nif/0,
+     fun cleanup_nif/1,
+     TestCases}
+    ,{setup,
+      fun setup_port/0,
+      fun cleanup_port/1,
+      TestCases}
+    ].
+-endif.
 
 change_get_cache_size_t() ->
     [ ?_assertMatch(ok, jq:set_filter_program_lru_cache_max_size(42)),
@@ -15,36 +36,36 @@ change_get_cache_size_t() ->
 change_get_cache_size_test_() -> wrap_setup_cleanup(change_get_cache_size_t()).
 
 empty_input_t_() ->
-    [ ?_assertMatch({error, {jq_err_parse, _}}, jq:parse(<<".">>, <<"">>))
-    , ?_assertMatch({error, {jq_err_parse, _}}, jq:parse(<<".">>, <<" ">>))
-    , ?_assertMatch({ok,[<<"{}">>]}, jq:parse(<<"">>, <<"{}">>))
-    , ?_assertMatch({ok,[<<"{}">>]}, jq:parse(<<" ">>, <<"{}">>))
-    ].
+    [
+       ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"">>))
+     , ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<" ">>))
+     , ?_assertMatch({ok,[<<"{}">>]}, jq:process_json(<<"">>, <<"{}">>))
+     , ?_assertMatch({ok,[<<"{}">>]}, jq:process_json(<<" ">>, <<"{}">>))].
 empty_input_test_() -> wrap_setup_cleanup(empty_input_t_()).
 
 parse_error_t_() ->
-    [ ?_assertMatch({error, {jq_err_parse, _}}, jq:parse(<<".">>, <<"{\"b\": }">>))
-    , ?_assertMatch({error, {jq_err_parse, _}}, jq:parse(<<".">>, <<"{\"b\"- 2}">>))
-    , ?_assertMatch({error, {jq_err_parse, _}}, jq:parse(<<".">>, <<"{\"b\"- 2}">>))
+    [ ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"{\"b\": }">>))
+    , ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"{\"b\"- 2}">>))
+    , ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"{\"b\"- 2}">>))
     ].
 parse_error_test_() -> wrap_setup_cleanup(parse_error_t_()).
 
 process_error_t_() ->
-    [ ?_assertMatch({error, {jq_err_process, _}}, jq:parse(<<".[1]">>, <<"{}">>))
-    , ?_assertMatch({error, {jq_err_process, _}}, jq:parse(<<".a">>, <<"[1,2]">>))
+    [ ?_assertMatch({error, {jq_err_process, _}}, jq:process_json(<<".[1]">>, <<"{}">>))
+    , ?_assertMatch({error, {jq_err_process, _}}, jq:process_json(<<".a">>, <<"[1,2]">>))
     ].
 process_error_test_() -> wrap_setup_cleanup(process_error_t_()).
 
 object_identifier_index_t_() ->
-    [ ?_assertEqual({ok,[<<"{\"b\":2}">>]}, jq:parse(<<".">>, <<"{\"b\": 2}">>))
-    , ?_assertEqual({ok,[<<"{\"b\":2}">>]}, jq:parse(<<".">>, <<"{\"b\":\n 2}">>))
-    , ?_assertEqual({ok,[<<"2">>]}, jq:parse(<<".b">>, <<"{\"b\": 2}">>))
-    , ?_assertEqual({ok,[<<"2">>]}, jq:parse(<<".a.b">>, <<"{\"a\":{\"b\": 2}}">>))
+    [ ?_assertEqual({ok,[<<"{\"b\":2}">>]}, jq:process_json(<<".">>, <<"{\"b\": 2}">>))
+    , ?_assertEqual({ok,[<<"{\"b\":2}">>]}, jq:process_json(<<".">>, <<"{\"b\":\n 2}">>))
+    , ?_assertEqual({ok,[<<"2">>]}, jq:process_json(<<".b">>, <<"{\"b\": 2}">>))
+    , ?_assertEqual({ok,[<<"2">>]}, jq:process_json(<<".a.b">>, <<"{\"a\":{\"b\": 2}}">>))
     ].
 object_identifier_index_test_() -> wrap_setup_cleanup(object_identifier_index_t_()).
 
 array_index_t_() ->
-    [ ?_assertEqual({ok,[<<"1">>,<<"2">>,<<"3">>]}, jq:parse(<<".b|.[]">>, <<"{\"b\": [1,2,3]}">>))
+    [ ?_assertEqual({ok,[<<"1">>,<<"2">>,<<"3">>]}, jq:process_json(<<".b|.[]">>, <<"{\"b\": [1,2,3]}">>))
     ].
 array_index_test_() -> wrap_setup_cleanup(array_index_t_()).
 
@@ -53,7 +74,7 @@ test_prog(ExpectedResStr, FilterProgStr, InputStr) ->
     FilterProgBin = erlang:list_to_binary(FilterProgStr),
     InputBin = erlang:list_to_binary(InputStr),
     ?_assertEqual({ok, [ExpectedResBin]},
-                  jq:parse(
+                  jq:process_json(
                     FilterProgBin,
                     InputBin)).
 
@@ -120,7 +141,9 @@ get_tests_cases() ->
                      process_error_t_(),
                      object_identifier_index_t_(),
                      array_index_t_(),
-                     advanced_filter_programs_t()])].
+                     advanced_filter_programs_t()
+                    ])
+    ].
 
 repeat_tests(Parent, ShouldStop, [], AllTestFuns, Cnt) ->
     case counters:get(ShouldStop, 1) of
@@ -137,8 +160,8 @@ concurrent_queries_test(NrOfTestProcesses, PrintThroughput, CacheSize, TestTimeM
     ShouldStop = counters:new(1, []),
     TestCases = get_tests_cases(), 
     Self = erlang:self(),
-    OldCacheSize = jq:get_filter_program_lru_cache_max_size(),
-    ok = jq:set_filter_program_lru_cache_max_size(CacheSize),
+    % OldCacheSize = jq:get_filter_program_lru_cache_max_size(),
+    % ok = jq:set_filter_program_lru_cache_max_size(CacheSize),
     TestRunner = fun() ->
                     repeat_tests(Self, ShouldStop, TestCases, TestCases, 0)
                  end,
@@ -157,7 +180,7 @@ concurrent_queries_test(NrOfTestProcesses, PrintThroughput, CacheSize, TestTimeM
                             CacheSize});
         false -> ok
     end,
-    ok = jq:set_filter_program_lru_cache_max_size(OldCacheSize),
+    % ok = jq:set_filter_program_lru_cache_max_size(OldCacheSize),
     ok.
 
 qubes_helper(0, SoFar) ->
@@ -173,20 +196,64 @@ concurrent_queries_t_() ->
              NrOfScheds = erlang:system_info(schedulers),
              Qubes = qubes(NrOfScheds),
              erlang:display_nl(),
-             [(ok = concurrent_queries_test(NrOfTestProcess, true, 500, 500))
+             [(ok = concurrent_queries_test(NrOfTestProcess, true, 500, 5000))
               || NrOfTestProcess <- Qubes],
              ok = concurrent_queries_test(NrOfScheds, false, 0, 100),
              ok = concurrent_queries_test(NrOfScheds, false, 1, 100),
              ok = concurrent_queries_test(NrOfScheds, false, 3, 100),
              ok = concurrent_queries_test(NrOfScheds, false, 10, 100),
              ok = concurrent_queries_test(NrOfScheds, false, 2, 100),
+             ok = concurrent_queries_test(NrOfScheds, false, 100, 150),
              ok
      end}.
 concurrent_queries_test_() -> wrap_setup_cleanup(concurrent_queries_t_()).
 
-setup() ->
-    ok.
+-ifndef(TEST_ONLY_NIF).
+port_program_valgrind_test_() ->
+    {timeout, 30,
+     fun() ->
+             jq:set_implementation_module(jq_port),
+             TestDir = filename:dirname(code:which(?MODULE)),
+             TestScript = filename:join(TestDir, "valgrind_port_program.sh"),
+             Result = os:cmd(TestScript),
+             case re:run(Result, "SUCCESS|SKIP") =/= nomatch of
+                 true -> ok;
+                 false ->
+                     ErrorMsg = io_lib:format("\nMemory Error. See: ~s",
+                                              [filename:join(TestDir, "port_program_stderr.txt\n")]),
+                     erlang:display_string(erlang:binary_to_list(erlang:iolist_to_binary(ErrorMsg))),
+                     error("Valgrind reported error(s)")
+             end
+     end}.
+-endif.
 
-cleanup(_) ->
-    true = code:delete(jq),
-    true = code:soft_purge(jq).
+setup_nif() ->
+    PrevImpMod = jq:implementation_module(),
+    jq:set_implementation_module(jq_nif),
+    PrevImpMod.
+
+cleanup_nif(PrevImpMod) ->
+    true = code:delete(jq_nif),
+    true = code:soft_purge(jq_nif),
+    jq:set_implementation_module(PrevImpMod).
+
+setup_port() ->
+    PrevImpMod = jq:implementation_module(),
+    jq:set_implementation_module(jq_port),
+    PrevImpMod.
+
+cleanup_port(PrevImpMod) ->
+    application:stop(jq),
+    jq:set_implementation_module(PrevImpMod).
+
+generate_port_program_input(RecordFilePath) ->
+    Schedulers = erlang:system_info(schedulers_online),
+    erlang:system_flag(schedulers_online, 1),
+    jq_port:start_recording(RecordFilePath),
+    ok = concurrent_queries_test(1, false, 100, 60),
+    ok = concurrent_queries_test(1, false, 1, 10),
+    ok = concurrent_queries_test(1, false, 3, 10),
+    ok = concurrent_queries_test(1, false, 0, 10),
+    application:stop(jq),
+    erlang:system_flag(schedulers_online, Schedulers),
+    ok.

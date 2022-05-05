@@ -1,6 +1,6 @@
-#include "enif_jq.h"
+#include <erl_nif.h>
 #include "jv.h"
-#include "lru.h"
+#include "port_nif_common.h"
 
 #include <stdbool.h>
 #include <setjmp.h>
@@ -68,8 +68,8 @@ static bool JQStateCacheEntry_lru_ptr_eq(
 // pointers to all jq_state caches so they can be freed)
 DECLARE_DYNARR_DS(JQStateCacheEntry_lru_ptr,
                   static,
-                  jq_enif_alloc,
-                  enif_free,
+                  erljq_alloc,
+                  erljq_free,
                   JQStateCacheEntry_lru_ptr_eq,
                   1)
 
@@ -97,77 +97,6 @@ typedef struct {
     // Lock protecting the above field from concurrent modifications
     ErlNifMutex * lock;
 } module_private_data;
-
-// jq_state cache entry (hash and string is the key and state is the value)
-typedef struct {
-    size_t hash;
-    char* string;
-    jq_state* state;
-    module_private_data* module_data;
-} JQStateCacheEntry;
-
-// Hash function for strings from https://stackoverflow.com/a/7666577
-// with small modifications
-static size_t hash_str(char *str) {
-    size_t hash = 5381;
-    int c;
-
-    while ((c = *str++))
-        hash = ((hash << 5) + hash) + c; /* hash * 33 + c */
-
-    return hash;
-}
-
-// Initialize a cache entry without any value
-static void jqstate_cache_entry_init(
-        JQStateCacheEntry* entry,
-        char* string,
-        module_private_data* data) {
-
-    entry->hash = hash_str(string);    
-    entry->string = string;
-    entry->module_data = data;
-}
-
-static bool jqstate_cache_entry_eq(JQStateCacheEntry* o1, JQStateCacheEntry* o2) {
-    return o1->hash == o2->hash && (strcmp(o1->string, o2->string) == 0); 
-}
-
-static size_t jqstate_cache_entry_hash(JQStateCacheEntry* o) {
-   return o->hash;
-}
-
-static void jqstate_cache_entry_destroy(JQStateCacheEntry* o) {
-   jq_teardown(&o->state); 
-   enif_free(o->string);
-}
-
-// This function is used to decide if the least recently used
-// item should be evicted when inserting a new item into the
-// cache
-static bool jqstate_cache_entry_shall_evict(
-        size_t current_cache_size,
-        JQStateCacheEntry* value) {
-    return current_cache_size > value->module_data->lru_cache_max_size;
-}
-
-// Generates structs and functions for an LRU (Least Recently Used) cache.
-// The LRU cache is used to cache jq_state records to reduce the risk
-// that the same JQ filer program needs to be recompiled frequently.
-// Compilation of filter programs is very slow so this greatly improves
-// performance. Notice that jq_state is mutable and changes while a
-// filter program is executed so it is important that the caches are
-// thread local.
-DECLARE_LRUCACHE_DS(
-        JQStateCacheEntry,
-        static,
-        jq_enif_alloc,
-        enif_free,
-        jqstate_cache_entry_eq,
-        jqstate_cache_entry_hash,
-        jqstate_cache_entry_destroy,
-        jqstate_cache_entry_shall_evict)
-
 
 
 // Returns the jq_state cache for the current thread (creates a new cache
@@ -221,21 +150,14 @@ jq_state* get_jq_state(
         int* remove_jq_object) {
 
     module_private_data* data = enif_priv_data(env);
-    // Make sure the JQ filter is \0 terminated
-    ERL_NIF_TERM compile_input;
-    memcpy(enif_make_new_binary(
-                env,
-                erl_jq_filter.size + 1,
-                &compile_input),
-            erl_jq_filter.data,
-            erl_jq_filter.size);
-    enif_inspect_binary(env, compile_input, &erl_jq_filter);
-    erl_jq_filter.data[erl_jq_filter.size-1] = '\0';
     JQStateCacheEntry_lru * cache = get_jqstate_cache(env, data);
     JQStateCacheEntry new_entry;
     if (data->lru_cache_max_size > 0) {
         // Check if there is already a jq filter in the LRU cache
-        jqstate_cache_entry_init(&new_entry, (char*)erl_jq_filter.data, data);
+        jqstate_cache_entry_init(
+                &new_entry,
+                (char*)erl_jq_filter.data,
+                &data->lru_cache_max_size);
         JQStateCacheEntry * cache_entry =
             JQStateCacheEntry_lru_get(cache, new_entry);
         if (cache_entry != NULL) {
@@ -246,26 +168,19 @@ jq_state* get_jq_state(
         cache = NULL;
     }
     // No entry in the cache so we have to create a new jq_state
-    jq_state *jq = NULL;
-    jq = jq_init();
+    char *error_message;
+    jq_state *jq =
+        create_jq_state_common((char*)erl_jq_filter.data, ret, &error_message);
+    /* jq = jq_init(); */
     if (jq == NULL) {
-        *ret = JQ_ERROR_SYSTEM;
-        const char* error_message = "jq_init: Could not initialize jq";
         *error_msg_bin_ptr =
             make_error_msg_bin(env, error_message, strlen(error_message));
-        return NULL;
-    }
-    if (!jq_compile(jq, (char*)erl_jq_filter.data)) {
-        *ret = JQ_ERROR_COMPILE;
-        const char* error_message = "Compilation of jq filter failed";
-        *error_msg_bin_ptr =
-            make_error_msg_bin(env, error_message, strlen(error_message));
-        jq_teardown(&jq);
+        erljq_free(error_message);
         return NULL;
     }
     if (cache != NULL) {
         // Add new entry to cache
-        char * filter_program_string = jq_enif_alloc(erl_jq_filter.size);
+        char * filter_program_string = erljq_alloc(erl_jq_filter.size);
         memcpy(filter_program_string, erl_jq_filter.data, erl_jq_filter.size);
         new_entry.state = jq;
         new_entry.string = filter_program_string;
@@ -301,54 +216,45 @@ static void err_callback(void *data, jv err) {
 // given jq_state
 static int process_json(
         jq_state *jq,
-        jv value,
+        char* json_text,
         ErlNifEnv* env, ERL_NIF_TERM *ret_list, int flags, int dumpopts,
         ERL_NIF_TERM* error_msg_bin_ptr) {
+    String_dynarr result_strings;
+    String_dynarr_init(&result_strings);
+    char* error_message;
+    int res =
+        process_json_common(
+                jq,
+                json_text,
+                flags,
+                dumpopts,
+                &result_strings,
+                &error_message); 
+    if (res == JQ_OK) {
+        size_t nr_of_result_objects = String_dynarr_size(&result_strings);
+        ERL_NIF_TERM list0 = enif_make_list(env, 0);
+        for (size_t i = 0; i < nr_of_result_objects; i++) {
+            String result = String_dynarr_item_at(&result_strings, i);
 
-  int ret = JQ_ERROR_UNKNOWN;
-  jq_start(jq, value, flags);
-  jv result;
-  ERL_NIF_TERM list0 = enif_make_list(env, 0);
-  while (jv_is_valid(result = jq_next(jq))) {
-      ret = JQ_OK;
-      jv res_jv_str = jv_dump_string(result, dumpopts);
-      const char* res_str = jv_string_value(res_jv_str);
-
-      ERL_NIF_TERM binterm;
-      int binterm_sz = strlen(res_str);
-      memcpy(enif_make_new_binary(env, binterm_sz, &binterm),
-             res_str,
-             binterm_sz);
-      list0 = enif_make_list_cell(env, binterm, list0);
-      jv_free(res_jv_str);
-  }
-  enif_make_reverse_list(env, list0, ret_list);
-
-  if (jv_invalid_has_msg(jv_copy(result))) {
-    // Uncaught jq exception
-    jv msg = jv_invalid_get_msg(jv_copy(result));
-    if (jv_get_kind(msg) == JV_KIND_STRING) {
-        size_t binsz =
-            snprintf(NULL, 0, "jq error: %s\n", jv_string_value(msg));
-        char* bin_data =
-            (char*)enif_make_new_binary(env, binsz, error_msg_bin_ptr);
-        snprintf(bin_data, binsz, "jq error: %s\n", jv_string_value(msg));
+            ERL_NIF_TERM binterm;
+            int binterm_sz = result.size;
+            memcpy(enif_make_new_binary(env, binterm_sz, &binterm),
+                    result.string,
+                    result.size);
+            list0 = enif_make_list_cell(env, binterm, list0);
+            erljq_free(result.string);
+        }
+        String_dynarr_destroy(&result_strings);
+        enif_make_reverse_list(env, list0, ret_list);
     } else {
-        msg = jv_dump_string(msg, 0);
-        size_t binsz = snprintf(NULL, 0, "jq error (not a string): %s\n",
-                jv_string_value(msg));
+        // We need to write back an error response
+        int binsz = strlen(error_message);
         char* bin_data =
             (char*)enif_make_new_binary(env, binsz, error_msg_bin_ptr);
-        snprintf(bin_data,
-                 binsz,
-                 "jq error (not a string): %s\n",
-                 jv_string_value(msg));
+        memcpy(bin_data, error_message, binsz);
+        erljq_free(error_message);
     }
-    ret = JQ_ERROR_PROCESS;
-    jv_free(msg);
-  }
-  jv_free(result);
-  return ret;
+    return res;
 }
 
 // Helper function to create an error result term
@@ -370,7 +276,7 @@ static ERL_NIF_TERM make_ok_return(ErlNifEnv* env, ERL_NIF_TERM result) {
 // NIF function taking a binaries for a filter program and a JSON text
 // and returning the result of processing the JSON text with the
 // filter program 
-static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
+static ERL_NIF_TERM process_json_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     ERL_NIF_TERM error_msg_bin; 
     // ----------------------------- init --------------------------------------
     jq_state *jq = NULL;
@@ -401,45 +307,10 @@ static ERL_NIF_TERM parse_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[
     if (jq == NULL) {
         goto out;
     }
-    // Set error callback here so that it gets the right env
-    NifEnvAndErrBinPtr env_and_msg_bin = {
-        .env = env,
-        .error_msg_bin_ptr = &error_msg_bin
-    };
-    jq_set_error_cb(jq, err_callback, &env_and_msg_bin);
-
-    // ------------------------- parse input json -----------------------------
-    // It is reasonable to assume that jv_parse_sized would not require the 
-    // input string to be NULL terminated. Unfortunately this is not the case.
-    // Error reporting depends on that the input string is NULL terminated
-    // so we have to copy the input to a larger memory block to make sure it
-    // is NULL terminated. A binary is used because small binaries are cheap
-    // as they can be allocated on the process heap.
-    ERL_NIF_TERM json_input;
-    memcpy(enif_make_new_binary(env, erl_json_text.size + 1, &json_input),
-           erl_json_text.data,
-           erl_json_text.size);
-    enif_inspect_binary(env, json_input, &erl_json_text);
-    erl_json_text.data[erl_json_text.size-1] = '\0';
-    jv jv_json_text =
-        jv_parse_sized((const char*)erl_json_text.data, erl_json_text.size - 1);
-    if (!jv_is_valid(jv_json_text)) {
-        ret = JQ_ERROR_PARSE;
-        // jv_invalid_get_msg destroys input jv object and returns new jv object
-        jv_json_text = jv_invalid_get_msg(jv_json_text);
-        error_msg_bin =
-            make_error_msg_bin(env,
-                               jv_string_value(jv_json_text),
-                               jv_string_length_bytes(jv_copy(jv_json_text)));
-        goto out;
-    }
-
-    // ---------------------- process json text --------------------------------
     ERL_NIF_TERM ret_list = enif_make_list(env, 0);
-    /*TODO: process_raw(jq, jv_json_text, &result, 0, dumpopts)*/
     ret = process_json(
             jq,
-            jv_copy(jv_json_text),
+            (char*)erl_json_text.data,
             env,
             &ret_list,
             0,
@@ -463,12 +334,6 @@ out:// ----------------------------- release -----------------------------------
             ret_term = make_ok_return(env, ret_list);
             break;
         }
-    }
-    // jq_next sometimes frees the input json and sometimes not so it is difficult
-    // to keep track of how many copies (ref cnt inc) we have made.
-    int ref_cnt = jv_get_refcnt(jv_json_text);
-    for(int i = 0; i < ref_cnt; i++) { 
-        jv_free(jv_json_text);
     }
     if (remove_jq_object) {
         jq_teardown(&jq);
@@ -547,6 +412,9 @@ static int load_helper(
         ERL_NIF_TERM load_info,
         int nr_of_loads_before) {
 
+    set_erljq_alloc(jq_enif_alloc);
+    set_erljq_free(enif_free);
+
     int filter_program_lru_cache_max_size;
     if ( get_int_config(
                 caller_env,
@@ -577,7 +445,7 @@ static int load_helper(
     data->lru_cache_max_size = filter_program_lru_cache_max_size;
     if (thrd_success !=
         tss_create(&data->thread_local_jq_state_lru_cache_key, NULL)) {
-        enif_free(data);
+        erljq_free(data);
         return 1;
     }
     char buffer[128];
@@ -585,7 +453,7 @@ static int load_helper(
     data->lock = enif_mutex_create(buffer);
     if (data->lock == NULL) {
         tss_delete(data->thread_local_jq_state_lru_cache_key);
-        enif_free(data);
+        erljq_free(data);
         return 1;
     }
     JQStateCacheEntry_lru_ptr_dynarr_init(&data->caches);
@@ -608,7 +476,7 @@ void unload(ErlNifEnv* caller_env, void* priv_data) {
     JQStateCacheEntry_lru_ptr_dynarr_destroy(&data->caches);
     tss_delete(data->thread_local_jq_state_lru_cache_key);
     enif_mutex_destroy(data->lock);
-    enif_free(data);
+    erljq_free(data);
 }
 
 static int upgrade(
@@ -623,16 +491,16 @@ static int upgrade(
 
 static ErlNifFunc nif_funcs[] = {
     /*
-       The parse_nif function seems to be very slow (at least when
+       The process_json_nif function seems to be very slow (at least when
        given filter programs that are not in the cache).
        The Erlang VM acts very strangely when it is not scheduled
        on a dirty scheduler (for example, timer:sleep() suspends
        for a much longer time than is should).
     */
-    {"parse", 2, parse_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"process_json", 2, process_json_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"set_filter_program_lru_cache_max_size", 1, set_filter_program_lru_cache_max_size_nif, 0},
     {"get_filter_program_lru_cache_max_size", 0, get_filter_program_lru_cache_max_size_nif, 0}
 };
 
-ERL_NIF_INIT(jq, nif_funcs, load, NULL, upgrade, unload)
+ERL_NIF_INIT(jq_nif, nif_funcs, load, NULL, upgrade, unload)
 

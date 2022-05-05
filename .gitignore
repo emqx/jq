@@ -23,3 +23,16 @@ c_src/jqc
 c_src/libs
 priv/*.dylib
 a.out
+c_src/ext_libs/
+c_src/libs/c_reusable_data_structures/
+c_src/libs/jqc/
+priv/erlang_jq_port
+test/port_program_stderr.txt
+test/port_program_stdout.bin
+asan_logs/
+c_src/.cache/
+compile_commands.json
+otp/
+tags
+test/my_test_record.bin
+c_src/a.out

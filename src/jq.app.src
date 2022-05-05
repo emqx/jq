@@ -2,12 +2,13 @@
  [{description, "A library for executing JQ (https://stedolan.github.io/jq/) filter programs"},
   {vsn, "0.1.0"},
   {registered, []},
+  {mod, {jq_app, []}},
   {applications,
    [kernel,
     stdlib
    ]},
   {env,[]},
-  {modules, []},
+  {modules, [jq_port, jq_port_app, jq_port_sup]},
 
   {licenses, ["Apache 2.0"]},
   {links, []}

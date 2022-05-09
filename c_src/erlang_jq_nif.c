@@ -191,26 +191,6 @@ jq_state* get_jq_state(
     return jq;
 }
 
-// Used by the error callback function err_callback
-typedef struct {
-    ErlNifEnv* env;
-    ERL_NIF_TERM* error_msg_bin_ptr;
-} NifEnvAndErrBinPtr;
-
-// Callback given to jq before executing a jq_filter
-static void err_callback(void *data, jv err) {
-    NifEnvAndErrBinPtr* env_and_msg_bin = data;
-    ErlNifEnv* env = env_and_msg_bin->env; 
-    ERL_NIF_TERM* error_msg_bin_ptr =
-        env_and_msg_bin->error_msg_bin_ptr; 
-    if (jv_get_kind(err) != JV_KIND_STRING)
-        err = jv_dump_string(err, JV_PRINT_INVALID);
-    *error_msg_bin_ptr =
-        make_error_msg_bin(env,
-                           jv_string_value(err),
-                           jv_string_length_bytes(jv_copy(err)));
-    jv_free(err);
-}
 
 // Process the JSON obejct value using the compiled filter program in the
 // given jq_state

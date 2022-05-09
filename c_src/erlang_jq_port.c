@@ -167,6 +167,7 @@ static ssize_t read_exact(byte *buf, size_t len) {
         for (size_t i = 0; i < len; i++) {
             fputc(buf[i], record_input_file); 
         }
+        fflush(record_input_file);
     }
     return got;
 }

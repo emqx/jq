@@ -43,6 +43,12 @@ empty_input_t_() ->
      , ?_assertMatch({ok,[<<"{}">>]}, jq:process_json(<<" ">>, <<"{}">>))].
 empty_input_test_() -> wrap_setup_cleanup(empty_input_t_()).
 
+include_t_() ->
+    [
+       ?_assertMatch({error, {jq_err_compile, _}}, jq:process_json(<<"include \"i_do_not_exist\";.">>, <<"1">>))
+    ].
+include_test_() -> wrap_setup_cleanup(include_t_()).
+
 parse_error_t_() ->
     [ ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"{\"b\": }">>))
     , ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"{\"b\"- 2}">>))
@@ -136,7 +142,8 @@ advanced_filter_programs_test_() ->
 get_tests_cases() ->
     [ erlang:element(2, Test) ||
       Test <-
-      lists:flatten([empty_input_t_(), 
+      lists:flatten([empty_input_t_(),
+                     include_t_(),
                      parse_error_t_(),
                      process_error_t_(),
                      object_identifier_index_t_(),

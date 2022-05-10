@@ -3,6 +3,7 @@
 // implementation of the Erlang jq library 
 #include "jq.h"
 #include "port_nif_common.h"
+#include <jv.h>
 #include <string.h>
 
 char* err_tags[] = {
@@ -35,25 +36,11 @@ static char* my_strdup(char * input) {
    return res;
 }
 
-jq_state* create_jq_state_common(
-        char* filter_program_str,
-        int* ret,
-        char** error_message_wb) {
-
-    jq_state *jq = NULL;
-    jq = jq_init();
-    if (jq == NULL) {
-        *ret = JQ_ERROR_SYSTEM;
-        *error_message_wb = my_strdup((char*)ERR_MSG_COULD_NOT_INIT);
-        return NULL;
-    }
-    if (!jq_compile(jq, filter_program_str)) {
-        *ret = JQ_ERROR_COMPILE;
-        *error_message_wb = my_strdup((char*)ERR_MSG_COMPILATION_FAILED);
-        jq_teardown(&jq);
-        return NULL;
-    }
-    return jq;
+static char* my_str_concat(char * input1, char * input2) {
+   size_t len = snprintf(NULL, 0, "%s\n%s",  input1, input2);
+   char* res = erljq_alloc(len + 1);
+   snprintf(res, len + 1, "%s%s", input1, input2);
+   return res;
 }
 
 // Used by the error callback function err_callback
@@ -66,13 +53,52 @@ static void err_callback(void *data, jv err) {
     ErrPtr* err_ptr = data;
     if (jv_get_kind(err) != JV_KIND_STRING)
         err = jv_dump_string(err, JV_PRINT_INVALID);
-    size_t error_message_len =
-        jv_string_length_bytes(jv_copy(err)) + 1;
-    *err_ptr->error_msg_wb = erljq_alloc(error_message_len);
-    memcpy(*err_ptr->error_msg_wb, jv_string_value(err), error_message_len -1);
-    (*err_ptr->error_msg_wb)[error_message_len - 1] = '\0';
+    if ((*err_ptr->error_msg_wb) == NULL) {
+        *err_ptr->error_msg_wb = my_strdup((char*)jv_string_value(err));
+    } else {
+        char * new_err_str =
+            my_str_concat(*err_ptr->error_msg_wb, (char*)jv_string_value(err));
+        erljq_free(*err_ptr->error_msg_wb);
+        *err_ptr->error_msg_wb = new_err_str;
+    }
     jv_free(err);
 }
+
+jq_state* create_jq_state_common(
+        char* filter_program_str,
+        int* ret,
+        char** error_message_wb) {
+
+    jq_state *jq = NULL;
+    jq = jq_init();
+    if (jq == NULL) {
+        *ret = JQ_ERROR_SYSTEM;
+        *error_message_wb = my_strdup((char*)ERR_MSG_COULD_NOT_INIT);
+        return NULL;
+    }
+    *error_message_wb = NULL;
+    // Set error callback here so that it gets the right env
+    ErrPtr env_and_msg_bin = {
+        .error_msg_wb = error_message_wb
+    };
+    jq_set_error_cb(jq, err_callback, &env_and_msg_bin);
+    // Needed to prevent crach when using include in jv programs
+    jq_set_attr(jq, jv_string("JQ_LIBRARY_PATH"), jv_array());
+    if (!jq_compile(jq, filter_program_str)) {
+        *ret = JQ_ERROR_COMPILE;
+        if ((*error_message_wb) == NULL) {
+            *error_message_wb = my_strdup((char*)ERR_MSG_COMPILATION_FAILED);
+        }
+        jq_teardown(&jq);
+        return NULL;
+    } else if ((*error_message_wb) != NULL) {
+        // Ignore reported error if jq_compile succeeded
+        erljq_free(*error_message_wb);
+        *error_message_wb = NULL;
+    }
+    return jq;
+}
+
 
 int process_json_common(
         jq_state * jq,
@@ -84,6 +110,7 @@ int process_json_common(
     
     int ret = JQ_OK;
     // Set error callback here so that it gets the right env
+    *error_msg_wb = NULL;
     ErrPtr env_and_msg_bin = {
         .error_msg_wb = error_msg_wb
     };
@@ -93,16 +120,12 @@ int process_json_common(
         jv_parse_sized(json_text, strlen(json_text));
     if (!jv_is_valid(json_jv)) {
         ret = JQ_ERROR_PARSE;
-        // jv_invalid_get_msg destroys input jv object and returns new jv object
-        json_jv = jv_invalid_get_msg(json_jv);
-        size_t error_message_len =
-        jv_string_length_bytes(jv_copy(json_jv)) + 1;
-        *error_msg_wb = erljq_alloc(error_message_len);
-        memcpy(*error_msg_wb,
-                jv_string_value(json_jv),
-                error_message_len -1);
+        if ((*error_msg_wb) == NULL) {
+            // jv_invalid_get_msg destroys input jv object and returns new jv object
+            json_jv = jv_invalid_get_msg(json_jv);
+            *error_msg_wb = my_strdup((char*)jv_string_value(json_jv));
+        }
         jv_free(json_jv);
-        (*error_msg_wb)[error_message_len - 1] = '\0';
         return ret;
     }
 

@@ -19,10 +19,11 @@ wrap_setup_cleanup(TestCases) ->
 wrap_setup_cleanup(TestCases) ->
     [
      {setup,
-     fun setup_nif/0,
-     fun cleanup_nif/1,
-     TestCases}
-    ,{setup,
+      fun setup_nif/0,
+      fun cleanup_nif/1,
+      TestCases}
+     ,
+     {setup,
       fun setup_port/0,
       fun cleanup_port/1,
       TestCases}
@@ -48,6 +49,50 @@ include_t_() ->
        ?_assertMatch({error, {jq_err_compile, _}}, jq:process_json(<<"include \"i_do_not_exist\";.">>, <<"1">>))
     ].
 include_test_() -> wrap_setup_cleanup(include_t_()).
+
+large_program_t_() ->
+    Program = (
+        "def rem_first:\n"
+        "    if length > 2 then del(.[0]) else . end;\n"
+        "def rem_last:\n"
+        "    if length > 1 then del(.[-1]) else . end;\n"
+        ".date as $date |\n"
+        ".name as $name |\n"
+        ".sensors[] |\n"
+        "(.data | sort | rem_first | rem_last | add / length) as $average |\n"
+        "{name: $name, average: $average, date: $date}"),
+    Data = (
+        "{"
+        "  \"date\": \"2020-04-24\","
+        "  \"sensors\": ["
+        "    {"
+        "      \"name\": \"a\","
+        "      \"data\": [-1,2,3,4,5]"
+        "    },"
+        "    {"
+        "      \"name\": \"b\","
+        "      \"data\": [1,-100,2,3,4,5,2000]"
+        "    },"
+        "    {"
+        "      \"name\": \"c\","
+        "      \"data\": [7]"
+        "    }"
+        "  ]"
+        "}"),
+    [
+       ?_assertMatch({ok,[<<"{\"name\":null,\"average\":3,\"date\":\"2020-04-24\"}">>,
+                          <<"{\"name\":null,\"average\":3,\"date\":\"2020-04-24\"}">>,
+                          <<"{\"name\":null,\"average\":7,\"date\":\"2020-04-24\"}">>]},
+                     jq:process_json(Program, Data))
+    ].
+large_program_test_() -> wrap_setup_cleanup(large_program_t_()).
+
+large_result_input_t_() ->
+    Data = erlang:iolist_to_binary(io_lib:format("~w", [lists:seq(1, 10000)])),
+    [
+       ?_assertMatch({ok, [Data]}, jq:process_json(".", Data))
+    ].
+large_result_input_test_() -> wrap_setup_cleanup(large_result_input_t_()).
 
 parse_error_t_() ->
     [ ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"{\"b\": }">>))

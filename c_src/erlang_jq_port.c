@@ -195,8 +195,8 @@ static byte* read_packet() {
     }
     len = 0;
     for (int i = (PACKET_SIZE_LEN-1); i >= 0; i--) {
-        size_t addad_byte = ((size_t)buf[PACKET_SIZE_LEN - (i+1)] << (i*sizeof(byte)));
-        len = len | addad_byte;
+        size_t addad_byte = (size_t)(buf[PACKET_SIZE_LEN - (i+1)]);
+        len = len | (addad_byte << (i * 8));
     }
     byte* command_content = erljq_alloc(len);
     if (read_exact(command_content, len) != len) {

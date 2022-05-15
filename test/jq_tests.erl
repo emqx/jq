@@ -94,6 +94,39 @@ large_result_input_t_() ->
     ].
 large_result_input_test_() -> wrap_setup_cleanup(large_result_input_t_()).
 
+timeout_t_() ->
+    Program = (
+        "def while(cond; update):"
+        "  def _while:"
+        "    if cond then  (update | _while) else . end;"
+        "  _while;"
+        "while(. < 42; . * 2)"),
+    TO = fun() -> {error, {timeout, _}} = jq:process_json(Program, "-2",10) end,
+    OK = fun() -> {ok, [<<"64">>]} = jq:process_json(Program, "2", 10000) end,
+    NrOfSubProcesses = 10,
+    TimeoutAndThenNot = 
+    fun () ->
+        OK,
+        TO,
+        OK,
+        Parent = self(),
+        Pids = [ spawn_link(fun() -> OK(), TO(), OK(), Parent ! self() end) ||
+                 _ <- lists:seq(1, NrOfSubProcesses)],
+       lists:sum([ receive X -> 1 end || X <- Pids])
+    end,
+    [
+       ?_assertMatch({ok, [<<"64">>]},
+                     jq:process_json(Program, "2", 10000))
+     , ?_assertMatch({ok, [<<"64">>]},
+                     jq:process_json(Program, "2", infinity))
+     , ?_assertMatch({ok, [<<"64">>]},
+                     jq:process_json(Program, "2"))
+     , ?_assertMatch({error, {timeout, _}},
+                     jq:process_json(Program, "-2",100))
+     , ?_assertMatch(NrOfSubProcesses, TimeoutAndThenNot())
+    ].
+timeout_test_() -> wrap_setup_cleanup(timeout_t_()).
+
 parse_error_t_() ->
     [ ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"{\"b\": }">>))
     , ?_assertMatch({error, {jq_err_parse, _}}, jq:process_json(<<".">>, <<"{\"b\"- 2}">>))

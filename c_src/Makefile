@@ -110,6 +110,8 @@ $(C_SRC_OUTPUT): $(OBJECTS) port_nif_common.h
 else
 $(C_SRC_OUTPUT): $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
 endif
+	@mkdir -p $(BASEDIR)/priv/
+	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 ifeq ($(UNAME_SYS), Darwin)
 	cp $(JQSRC_DIR)/.libs/$(LIBJQ) $(PRIV_DIR)/
 	cp $(JQSRC_DIR)/modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/
@@ -120,8 +122,6 @@ ifeq ($(UNAME_SYS), Darwin)
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBONIG) "@loader_path/$(LIBONIG)" $(ERL_PORT_PROGRAM)
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBJQ) "@loader_path/$(LIBJQ)" $(ERL_PORT_PROGRAM)
 endif
-	@mkdir -p $(BASEDIR)/priv/
-	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 
 $(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
 	@mkdir -p $(BASEDIR)/priv/

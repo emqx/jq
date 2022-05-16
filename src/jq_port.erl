@@ -389,6 +389,13 @@ handle_info({'EXIT', Port, Reason}, #{port := Port} = State) ->
     %% Let us try to start a new port
     NewPort = start_port_program(),
     {noreply, State#{port => NewPort}};
+handle_info({'EXIT', Port, _Reason}, State) when is_port(Port) ->
+    %% Flush message from old port 
+    {noreply, State};
+handle_info({OtherPort, {data, _Data}}, #{port := Port} = State)
+  when is_port(OtherPort), OtherPort =/= Port ->
+    %% Flush message from old port 
+    {noreply, State};
 handle_info(UnknownMessage, State) ->
     logger:info(io_lib:format("Unhandled message sent to jq port server: message ~p state: ~p",
                               [UnknownMessage, State])),

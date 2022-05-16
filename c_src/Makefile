@@ -103,10 +103,16 @@ PORT_OBJECTS = $(addsuffix .o, $(basename $(PORT_SOURCES)))
 COMPILE_C = $(c_verbose) $(CC) $(CFLAGS) $(CPPFLAGS) -c
 COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
 
-.PHONY: clean build_erl_jq
+.PHONY: clean
 
+ifeq ($(JQ_MEMSAN_DEBUG), 1)
+$(C_SRC_OUTPUT): $(OBJECTS) port_nif_common.h
+else
+$(C_SRC_OUTPUT): $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
+endif
+	@mkdir -p $(BASEDIR)/priv/
+	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 ifeq ($(UNAME_SYS), Darwin)
-$(C_SRC_OUTPUT): build_erl_jq
 	cp $(JQSRC_DIR)/.libs/$(LIBJQ) $(PRIV_DIR)/
 	cp $(JQSRC_DIR)/modules/oniguruma/src/.libs/$(LIBONIG) $(PRIV_DIR)/
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBONIG) "@loader_path/$(LIBONIG)" $(PRIV_DIR)/$(LIBJQ)
@@ -115,17 +121,7 @@ $(C_SRC_OUTPUT): build_erl_jq
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBJQ) "@loader_path/$(LIBJQ)" $(C_SRC_OUTPUT)
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBONIG) "@loader_path/$(LIBONIG)" $(ERL_PORT_PROGRAM)
 	install_name_tool -change $(LIBJQ_PREFIX)/lib/$(LIBJQ) "@loader_path/$(LIBJQ)" $(ERL_PORT_PROGRAM)
-else
-$(C_SRC_OUTPUT): build_erl_jq
 endif
-
-ifeq ($(JQ_MEMSAN_DEBUG), 1)
-build_erl_jq: $(OBJECTS) port_nif_common.h
-else
-build_erl_jq: $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
-endif
-	@mkdir -p $(BASEDIR)/priv/
-	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
 
 $(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
 	@mkdir -p $(BASEDIR)/priv/

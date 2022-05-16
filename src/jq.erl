@@ -9,6 +9,7 @@
 
 -export([
            process_json/2
+         , process_json/3
          , set_filter_program_lru_cache_max_size/1
          , get_filter_program_lru_cache_max_size/0
          , implementation_module/0
@@ -25,8 +26,54 @@
 %%
 %% @param JSONText Binary or iodata containing a valid JSON object
 %%
+%% @param TimeoutMs specifies a timeout in milliseconds (or the atom infinity
+%% to never timeout). The function will cancel the execution of the jq program
+%% and return an error tuple if the execution has not finished within the
+%% timeout.
+%%
 %% @returns ok tuple with list of binaries with resulting JSON objects or error
-%% tuple in case of an error
+%% tuple in case of an error (a timeout also counts as an error)
+
+
+-spec process_json(FilterProgram, JSONText, TimeoutMs) -> Result when
+    FilterProgram :: iodata(),
+    JSONText :: iodata(),
+    TimeoutMs :: timeout(),
+    Result :: {ok, [binary()]} | {error, Reason},
+    Reason :: term().
+
+
+process_json(FilterProgram, JSONText, TimeoutMs)
+  when is_binary(FilterProgram), is_binary(JSONText), size(FilterProgram) > 0, size(JSONText) > 0 ->
+    case {binary_part(FilterProgram, size(FilterProgram) - 1, 1),
+          binary_part(JSONText, size(JSONText) - 1, 1)} of
+        {<<"\0">>, <<"\0">>} ->
+            Mod = implementation_module(),
+            case TimeoutMs of
+                infinity ->
+                    Mod:process_json(FilterProgram, JSONText);
+                TimeoutMs when (not is_integer(TimeoutMs)) orelse TimeoutMs < 0 ->
+                    {error,
+                     {bad_timeout_val,
+                      io_lib:format("Needs positive integer or infinity but got ~p", [TimeoutMs])}};
+                TimeoutMs ->
+                    %% Timeouts are only supported by the port implementation so
+                    %% for now we use the port implementation when a timeout is
+                    %% given, even if the user has configured the library to use
+                    %% the NIF implementation.
+                    jq_port:process_json(FilterProgram, JSONText, TimeoutMs)
+            end;
+        _ ->
+            %% Force execution of the next clause so the inputs gets 0 terminated
+            process_json([FilterProgram], [JSONText], TimeoutMs)
+    end;
+process_json(FilterProgram, JSONText, TimeoutMs) ->
+    process_json(erlang:iolist_to_binary([FilterProgram, <<"\0">>]),
+                 erlang:iolist_to_binary([JSONText, <<"\0">>]),
+                 TimeoutMs). 
+
+%% @doc Calling this function is identical to calling
+%% process_json(FilterProgram, JSONText, infinity)
 
 
 -spec process_json(FilterProgram, JSONText) -> Result when
@@ -35,20 +82,8 @@
     Result :: {ok, [binary()]} | {error, Reason},
     Reason :: term().
 
-process_json(FilterProgram, JSONText)
-  when is_binary(FilterProgram), is_binary(JSONText), size(FilterProgram) > 0, size(JSONText) > 0 ->
-    case {binary_part(FilterProgram, size(FilterProgram) - 1, 1),
-          binary_part(JSONText, size(JSONText) - 1, 1)} of
-        {<<"\0">>, <<"\0">>} ->
-            %% erlang:display(null_terminated),
-            Mod = implementation_module(),
-            Mod:process_json(FilterProgram, JSONText);
-        _ ->
-            process_json([FilterProgram], [JSONText])
-    end;
 process_json(FilterProgram, JSONText) ->
-    process_json(erlang:iolist_to_binary([FilterProgram, <<"\0">>]),
-                 erlang:iolist_to_binary([JSONText, <<"\0">>])). 
+    process_json(FilterProgram, JSONText, infinity). 
 
 %% @doc Get the implementation module that is currently used.
 

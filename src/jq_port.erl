@@ -26,7 +26,7 @@
 
 %% Public interface
 
--export([process_json/2]).
+-export([process_json/2, process_json/3]).
 
 %% Configuration functions
 -export([
@@ -108,12 +108,16 @@ set_filter_program_lru_cache_max_size(NewSize)
     end,
     do_op_ensure_started(Op).
 
-process_json(FilterProgram, JSONText)
+process_json(FilterProgram, JSONText) ->
+    process_json(FilterProgram, JSONText, infinity).
+
+
+process_json(FilterProgram, JSONText, TimeoutMs)
   when is_binary(FilterProgram), is_binary(JSONText) ->
     Op =
     fun() ->
             gen_server:call(port_server(),
-                            {jq_process_json, FilterProgram, JSONText},
+                            {jq_process_json, FilterProgram, JSONText, TimeoutMs},
                             infinity)
     end,
     do_op_ensure_started(Op).
@@ -202,22 +206,38 @@ kill_port(Port) ->
         {Port, {data, <<"exiting">>}} -> 
             ok
     after TimeToWaitForExitingConfirmation ->
+              PortInfoRes = erlang:port_info(Port, os_pid),
+              case PortInfoRes of
+                  {os_pid, OsPid} when is_integer(OsPid) ->
+                      KillCmdFormat =
+                      case os:type() of
+                          {win32, _} ->
+                              "taskkill /PID ~p /F";
+                          {_, _ } -> 
+                              %% We assume it is UNIX or some other OS
+                              %% with an UNIX kill command.
+                              "kill -9 ~p"
+                      end,
+                      %% This is theoretically unsafe as the process
+                      %% might have died and the its PID got reused.
+                      %% However, on mainstream systems it should not
+                      %% be a problem as it is unlikely that the same
+                      %% PID will get reused very quickly.
+                      os:cmd(io_lib:format(KillCmdFormat, [OsPid]));
+                  _ ->
+                      %% Process should be closed already if we did
+                      %% not get an integer
+                      ok
+              end,
               ok
     end,
-    %% Send close to the port just in case the port does not respond to the exit command for some reason
-    Port ! {self(), close},
     ok.
 
 send_msg_to_port(Port, Msg) ->
     erlang:port_command(Port, Msg).
 
 receive_msg_from_port(Port) ->
-    receive
-        {Port, {data, Data}} ->
-            Data;
-        {'EXIT', Port, Reason} ->
-            {error, port_exited_during_op, Port, Reason}
-    end.
+    receive_msg_from_port(Port, infinity).
 
 receive_msg_from_port(Port, TimeoutMs) ->
     receive
@@ -226,7 +246,7 @@ receive_msg_from_port(Port, TimeoutMs) ->
         {'EXIT', Port, Reason} ->
             {error, port_exited_during_op, Port, Reason}
     after TimeoutMs ->
-              {error, timeout_while_waiting_for_msg}
+            {error, timeout_while_waiting_for_msg}
     end.
 
 receive_ok_msg_from_port(Port, State) ->
@@ -237,16 +257,32 @@ receive_ok_msg_from_port(Port, State) ->
  
 
 misbehaving_port_program(State, ErrorClass, Reason) ->
-    logger:error(io_lib:format("jq port program responsed in unexepected way (state = ~p error_class ~p reason ~p , restarting)",
-                               [State, ErrorClass, Reason])),
+    Ret =
+        case Reason of
+            {timeout_while_waiting_for_msg, TimeoutMs} ->
+                ErrorMsgFormatTO = 
+                    "jq program canceled as it took too long time to execute (timeout set to ~w ms)",
+                ErrorMsgTO =
+                    erlang:iolist_to_binary(io_lib:format(ErrorMsgFormatTO, [TimeoutMs])),
+                logger:error(ErrorMsgTO),
+                {error, {timeout, ErrorMsgTO}};
+            _ ->
+                ErrorMsgFormat = 
+                    ("jq port program responded in unexpected way "
+                     "(state = ~p error_class ~p reason ~p , restarting)"),
+                ErrorMsg = erlang:iolist_to_binary(io_lib:format(ErrorMsgFormat,
+                                                                 [State, ErrorClass, Reason])),
+                logger:error(ErrorMsg),
+                {error, {misbehaving_port_program, ErrorClass, Reason}}
+        end,
     OldPort = state_port(State), 
     kill_port(OldPort),
     NewPort = start_port_program(),
     NewState = State#{port => NewPort},
-    {reply, {error, {misbehaving_port_program, ErrorClass, Reason}}, NewState}.
+    {reply, Ret, NewState}.
 
-receive_process_json_result(Port) ->
-    case receive_msg_from_port(Port) of
+receive_process_json_result(Port, TimeoutMs) ->
+    case receive_msg_from_port(Port, TimeoutMs) of
         <<"ok">> ->
             SizeStr = receive_msg_from_port(Port),
             NrOfItems = erlang:binary_to_integer(SizeStr),
@@ -254,6 +290,8 @@ receive_process_json_result(Port) ->
         <<"error">> ->
             [ErrorType, ErrorMsg] = receive_result_blobs(Port, 2, []),
             {error, {erlang:binary_to_atom(ErrorType), ErrorMsg}};
+        {error, timeout_while_waiting_for_msg} ->
+            error({timeout_while_waiting_for_msg, TimeoutMs});
         Unexpected ->
             error({unexpected_response_from_port, Unexpected})
     end.
@@ -271,13 +309,15 @@ new_state_after_process_json(State) ->
             State#{processed_json_calls => NrOfCalls + 1}
     end.
 
-handle_call({jq_process_json, FilterProgram, JSONText}, _From, State) ->
+handle_call({jq_process_json, FilterProgram, JSONText, TimeoutMs}, _From, State) ->
     Port = state_port(State),
     try
         send_msg_to_port(Port, <<"process_json\0">>), 
         send_msg_to_port(Port, FilterProgram), 
         send_msg_to_port(Port, JSONText), 
-        {reply, receive_process_json_result(Port), new_state_after_process_json(State)}
+        {reply,
+         receive_process_json_result(Port, TimeoutMs),
+         new_state_after_process_json(State)}
     catch
         ErrorClass:Reason ->
             misbehaving_port_program(State, ErrorClass, Reason)
@@ -349,6 +389,13 @@ handle_info({'EXIT', Port, Reason}, #{port := Port} = State) ->
     %% Let us try to start a new port
     NewPort = start_port_program(),
     {noreply, State#{port => NewPort}};
+handle_info({'EXIT', Port, _Reason}, State) when is_port(Port) ->
+    %% Flush message from old port 
+    {noreply, State};
+handle_info({OtherPort, {data, _Data}}, #{port := Port} = State)
+  when is_port(OtherPort), OtherPort =/= Port ->
+    %% Flush message from old port 
+    {noreply, State};
 handle_info(UnknownMessage, State) ->
     logger:info(io_lib:format("Unhandled message sent to jq port server: message ~p state: ~p",
                               [UnknownMessage, State])),

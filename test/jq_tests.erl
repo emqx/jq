@@ -94,6 +94,11 @@ large_result_input_t_() ->
     ].
 large_result_input_test_() -> wrap_setup_cleanup(large_result_input_t_()).
 
+timeout_bad_arg_t_() ->
+    [?_assertMatch({error, _}, jq:process_json(".", "42", -1)),
+     ?_assertMatch({error, _}, jq:process_json(".", "42", hej))].
+timeout_bad_arg_test_() -> wrap_setup_cleanup(timeout_bad_arg_t_()).
+
 timeout_t_() ->
     Program = (
         "def while(cond; update):"
@@ -101,7 +106,7 @@ timeout_t_() ->
         "    if cond then  (update | _while) else . end;"
         "  _while;"
         "while(. < 42; . * 2)"),
-    TO = fun() -> {error, {timeout, _}} = jq:process_json(Program, "-2",10) end,
+    TO = fun() -> {error, {timeout, _}} = jq:process_json(Program, "-2", 10) end,
     OK = fun() -> {ok, [<<"64">>]} = jq:process_json(Program, "2", 10000) end,
     NrOfSubProcesses = 10,
     TimeoutAndThenNot = 

@@ -296,9 +296,6 @@ receive_process_json_result(Port, TimeoutMs) ->
             error({unexpected_response_from_port, Unexpected})
     end.
 
-receive_process_json_result(Port) ->
-    receive_process_json_result(Port, infinity).
-
 new_state_after_process_json(State) ->
     RestartPeriod = state_restart_period(State),
     NrOfCalls = state_processed_json_calls(State),

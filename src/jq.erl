@@ -38,7 +38,7 @@
 -spec process_json(FilterProgram, JSONText, TimeoutMs) -> Result when
     FilterProgram :: iodata(),
     JSONText :: iodata(),
-    TimeoutMs :: non_neg_integer() | infinity,
+    TimeoutMs :: timeout(),
     Result :: {ok, [binary()]} | {error, Reason},
     Reason :: term().
 
@@ -55,7 +55,7 @@ process_json(FilterProgram, JSONText, TimeoutMs)
                 TimeoutMs when (not is_integer(TimeoutMs)) orelse TimeoutMs < 0 ->
                     {error,
                      {bad_timeout_val,
-                      io_lib:format_prompt("Needs positive integer or infinity but got ~p", [TimeoutMs])}};
+                      io_lib:format("Needs positive integer or infinity but got ~p", [TimeoutMs])}};
                 TimeoutMs ->
                     %% Timeouts are only supported by the port implementation so
                     %% for now we use the port implementation when a timeout is

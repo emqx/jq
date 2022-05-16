@@ -206,9 +206,9 @@ kill_port(Port) ->
         {Port, {data, <<"exiting">>}} -> 
             ok
     after TimeToWaitForExitingConfirmation ->
-              {os_pid, OsPid} = erlang:port_info(Port, os_pid),
-              case OsPid of
-                  OsPid when is_integer(OsPid) ->
+              PortInfoRes = erlang:port_info(Port, os_pid),
+              case PortInfoRes of
+                  {os_pid, OsPid} when is_integer(OsPid) ->
                       KillCmdFormat =
                       case os:type() of
                           {win32, _} ->

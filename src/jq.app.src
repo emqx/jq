@@ -1,6 +1,6 @@
 {application, jq,
  [{description, "A library for executing JQ (https://stedolan.github.io/jq/) filter programs"},
-  {vsn, "0.1.0"},
+  {vsn, "git"},
   {registered, []},
   {mod, {jq_app, []}},
   {applications,

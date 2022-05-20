@@ -152,7 +152,7 @@ $(LIBJQ_NAME): $(JQSRC)
 	export CFLAGS="$(EXTRA_C_FLAGS)" && \
 	export LDFLAGS="$(MEMSAN_FLAGS)" && \
 	autoreconf -fi && \
-	./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \
+	./configure --with-oniguruma=builtin --disable-maintainer-mode --prefix=$(LIBJQ_PREFIX) && \
 	make -C modules/oniguruma/ && \
 	make src/builtin.inc && \
 	make libjq.la && \

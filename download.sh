@@ -2,7 +2,8 @@
 
 set -euo pipefail
 
-PKGNAME="$(./pkgname.sh)"
+PKGNAME="${1:-}"
+
 if [ -z "$PKGNAME" ]; then
     # unable to resolve pkgname-version
     # compile from source

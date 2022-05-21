@@ -16,6 +16,10 @@ fi
 make -C c_src
 
 if [ "${BUILD_RELEASE:-}" = 1 ]; then
+    if [ -z "$PKGNAME" ]; then
+        echo "JQ: unable_to_resolve_release_package_name"
+        exit 1
+    fi
     mkdir -p _packages
     TARGET="_packages/${PKGNAME}"
     cp c_src/libs/jqc/COPYING priv/
@@ -26,4 +30,5 @@ if [ "${BUILD_RELEASE:-}" = 1 ]; then
     else
         sha256sum "${TARGET}" | cut -d ' ' -f 1 > "${TARGET}.sha256"
     fi
+    echo "JQ: built $TARGET"
 fi

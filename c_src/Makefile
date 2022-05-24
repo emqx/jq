@@ -1,5 +1,6 @@
 # Based on c_src.mk from erlang.mk by Loic Hoguin <essen@ninenines.eu>
 UNAME_SYS := $(shell uname -s)
+ARCH := $(shell uname -m)
 CURDIR := $(shell pwd)
 BASEDIR := $(abspath $(CURDIR)/..)
 VERSION := $(shell escript get_version.erl "$(BASEDIR)/src/jq_nif.erl") 
@@ -56,9 +57,9 @@ C_SRC_OUTPUT ?= $(PRIV_DIR)/$(NIF_MODULE)$(VERSION).so
 
 ifeq ($(UNAME_SYS), Darwin)
 	CC ?= gcc
-	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -arch x86_64 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
-	CXXFLAGS ?= -O3 -arch x86_64 -finline-functions -Wall
-	LDFLAGS ?= -arch x86_64 -flat_namespace -undefined suppress
+	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -arch $(ARCH) -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
+	CXXFLAGS ?= -O3 -arch $(ARCH) -finline-functions -Wall
+	LDFLAGS ?= -arch $(ARCH) -flat_namespace -undefined suppress
 	LD_JQLIBS ?= -ljq -lonig
 else ifeq ($(UNAME_SYS), FreeBSD)
 	CC ?= gcc

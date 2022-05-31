@@ -14,14 +14,15 @@ TAG="$(git describe --tags --exact-match 2>/dev/null | head -1)"
 URL="https://github.com/emqx/jq/releases/download/$TAG/$PKGNAME"
 
 mkdir -p _packages
-if [ ! -f "_packages/${PKGNAME}" ]; then
-    curl -f -L -o "${PKGNAME}" "${URL}"
+PKGFILE="_packages/${PKGNAME}"
+if [ ! -f "$PKGFILE" ]; then
+    curl -f -L -o "${PKGFILE}" "${URL}"
 fi
 
-if [ ! -f "_packages/${PKGNAME}.sha256" ]; then
-    curl -f -L -o "${PKGNAME}.sha256" "${URL}.sha256"
+if [ ! -f "${PKGFILE}.sha256" ]; then
+    curl -f -L -o "${PKGFILE}.sha256" "${URL}.sha256"
 fi
 
-echo "$(cat "_packages/${PKGNAME}.sha256") _packages/${PKGNAME}" | sha256sum -c || exit 1
+echo "$(cat "${PKGFILE}.sha256") $PKGFILE" | sha256sum -c || exit 1
 
-tar -xzf "_packages/${PKGNAME}" -C .
+tar -xzf "${PKGFILE}" -C .

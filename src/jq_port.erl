@@ -163,7 +163,7 @@ port_program_path() ->
     Path.
 
 start_port_program() ->
-    Port = erlang:open_port({spawn, port_program_path()}, [{packet, 4}, binary]),
+    Port = erlang:open_port({spawn_executable, port_program_path()}, [{packet, 4}, binary]),
     true = is_port_alive(Port),
     Port.
 

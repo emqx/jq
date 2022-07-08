@@ -1,9 +1,9 @@
 # Based on c_src.mk from erlang.mk by Loic Hoguin <essen@ninenines.eu>
 UNAME_SYS := $(shell uname -s)
 ARCH := $(shell uname -m)
-CURDIR := $(shell pwd)
-BASEDIR := $(abspath $(CURDIR)/..)
-VERSION := $(shell escript get_version.erl "$(BASEDIR)/src/jq_nif.erl") 
+CURDIR := .
+BASEDIR := $(CURDIR)/..
+VERSION := $(shell escript get_version.erl ../src/jq_nif.erl) 
 VERSION := $(strip $(VERSION))
 JQERLMODSRC := $(BASEDIR)/src/jq_nif.erl
 
@@ -11,15 +11,15 @@ PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
 NIF_MODULE := jq_nif
 JQURL := https://github.com/emqx/jqc.git
-JQSRC_DIR := $(CURDIR)/libs/jqc
+JQSRC_DIR := libs/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
 RDSURL := https://github.com/emqx/c_reusable_data_structures.git
-RDSSRC_DIR := $(CURDIR)/libs/c_reusable_data_structures
+RDSSRC_DIR := libs/c_reusable_data_structures
 RDSSRC := $(RDSSRC_DIR)/Makefile
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
 LIBJQ_PREFIX := /usr/local
-EXT_LIBS := $(CURDIR)/ext_libs
-ERL_PORT_PROGRAM := $(BASEDIR)/priv/erlang_jq_port
+EXT_LIBS := ext_libs
+ERL_PORT_PROGRAM := ../priv/erlang_jq_port
 ifeq ($(UNAME_SYS), Darwin)
 	LIBJQ := libjq.1.dylib
 	LIBONIG := libonig.4.dylib
@@ -49,8 +49,8 @@ DS_INCLUDE_DIR ?= libs/c_reusable_data_structures
 
 ERL_INTERFACE_LIB_DIR ?= $(shell erl -noshell -s init stop -eval "io:format(\"~ts\", [code:lib_dir(erl_interface, lib)]).")
 
-PRIV_DIR = $(CURDIR)/../priv
-C_SRC_DIR = $(CURDIR)
+PRIV_DIR = ../priv
+C_SRC_DIR = ./
 C_SRC_OUTPUT ?= $(PRIV_DIR)/$(NIF_MODULE)$(VERSION).so
 
 # System type and C compiler/flags.
@@ -109,7 +109,7 @@ COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
 ifeq ($(JQ_MEMSAN_DEBUG), 1)
 $(C_SRC_OUTPUT): $(OBJECTS) port_nif_common.h
 else
-$(C_SRC_OUTPUT): $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
+$(C_SRC_OUTPUT): $(RDSSRC) $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
 endif
 	@mkdir -p $(BASEDIR)/priv/
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
@@ -132,22 +132,22 @@ $(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
 	$(COMPILE_C) $(OUTPUT_OPTION) $<
 
 $(JQSRC):
-	git clone -b jq-1.6-emqx --single-branch $(JQURL) $(JQSRC_DIR)
-	((cd $(JQSRC_DIR) && git checkout 51df83ccf4808867eee79a011c71a93a121be1b6) || \
+	git clone -b jq-1.6-emqx --single-branch "$(JQURL)" "$(JQSRC_DIR)"
+	((cd "$(JQSRC_DIR)" && git checkout 51df83ccf4808867eee79a011c71a93a121be1b6) || \
 	     (echo "Failed to check out jq commit" && \
-	      rm -r $(JQSRC_DIR) && \
+	      rm -r "$(JQSRC_DIR)" && \
 	      false))
 
 $(RDSSRC):
-	git clone -b master --single-branch $(RDSURL) $(RDSSRC_DIR)
-	((cd $(RDSSRC_DIR) && git checkout 77c7a96416065a839417e5078fce9ba9a14982dc) || \
+	git clone -b master --single-branch "$(RDSURL)" "$(RDSSRC_DIR)"
+	((cd "$(RDSSRC_DIR)" && git checkout 77c7a96416065a839417e5078fce9ba9a14982dc) || \
 	     (echo "Failed to check out c_reusable_data_structures commit" && \
-	      rm -r $(RDSSRC_DIR) && \
+	      rm -r "$(RDSSRC_DIR)" && \
 	      false))
 
 $(LIBJQ_NAME): $(JQSRC)
 	#ls -lart .libs/ modules/oniguruma/src/.libs/
-	cd $(JQSRC_DIR) && \
+	(cd $(JQSRC_DIR) && \
 	git submodule update --init && \
 	export CC="$(CC)" && \
 	export CFLAGS="$(EXTRA_C_FLAGS)" && \
@@ -156,12 +156,10 @@ $(LIBJQ_NAME): $(JQSRC)
 	./configure --with-oniguruma=builtin --disable-maintainer-mode --prefix=$(LIBJQ_PREFIX) && \
 	make -C modules/oniguruma/ && \
 	make src/builtin.inc && \
-	make libjq.la && \
+	make libjq.la) && \
 	(mkdir $(EXT_LIBS) || true) && \
-	cp .libs/libjq.* $(EXT_LIBS)/ && \
-	cp modules/oniguruma/src/.libs/libonig.* $(EXT_LIBS)/ && \
-	cd $(C_SRC_DIR)
-
+	cp $(JQSRC_DIR)/.libs/libjq.* $(EXT_LIBS)/ && \
+	cp $(JQSRC_DIR)/modules/oniguruma/src/.libs/libonig.* $(EXT_LIBS)/
 clean:
 	@rm -f $(OBJECTS)
 	@rm -f $(PORT_OBJECTS)

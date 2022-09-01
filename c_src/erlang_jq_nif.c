@@ -1,4 +1,5 @@
 #include <erl_nif.h>
+#include "jq.h"
 #include "jv.h"
 #include "port_nif_common.h"
 
@@ -96,6 +97,9 @@ typedef struct {
     JQStateCacheEntry_lru_ptr_dynarr caches;
     // Lock protecting the above field from concurrent modifications
     ErlNifMutex * lock;
+    // NIF resource that holds a jq state that is used when timing out
+    // NIF calls
+    ErlNifResourceType * jq_state_holder_resource_type; 
 } module_private_data;
 
 
@@ -162,6 +166,9 @@ jq_state* get_jq_state(
             JQStateCacheEntry_lru_get(cache, new_entry);
         if (cache_entry != NULL) {
             // Return jq_state from cache
+            // It is important that we reset the cancel state so
+            // that the jq execution don't get canceled immediately
+            jq_reset_cancel_state(cache_entry->state);
             return cache_entry->state;
         }
     } else {
@@ -178,6 +185,7 @@ jq_state* get_jq_state(
         erljq_free(error_message);
         return NULL;
     }
+    jq_reset_cancel_state(jq);
     if (cache != NULL) {
         // Add new entry to cache
         char * filter_program_string = erljq_alloc(erl_jq_filter.size);
@@ -192,7 +200,7 @@ jq_state* get_jq_state(
 }
 
 
-// Process the JSON obejct value using the compiled filter program in the
+// Process the JSON object value using the compiled filter program in the
 // given jq_state
 static int process_json(
         jq_state *jq,
@@ -233,6 +241,14 @@ static int process_json(
             (char*)enif_make_new_binary(env, binsz, error_msg_bin_ptr);
         memcpy(bin_data, error_message, binsz);
         erljq_free(error_message);
+        // We might have results in the result strings (e.g., when there is a
+        // timeout) so we need to free them as well
+        size_t nr_of_result_objects = String_dynarr_size(&result_strings);
+        for (size_t i = 0; i < nr_of_result_objects; i++) {
+            String result = String_dynarr_item_at(&result_strings, i);
+            erljq_free(result.string);
+        }
+        String_dynarr_destroy(&result_strings);
     }
     return res;
 }
@@ -253,9 +269,71 @@ static ERL_NIF_TERM make_ok_return(ErlNifEnv* env, ERL_NIF_TERM result) {
     return enif_make_tuple2(env, enif_make_atom(env, "ok"), result);
 }
 
+typedef struct {
+    ErlNifMutex* lock;
+    volatile bool consumed_by_process_json_nif;
+    jq_state* state;
+} JQCancelableStateHolderResource;
+
+static ERL_NIF_TERM
+create_jq_resource_nif(
+        ErlNifEnv* env,
+        int argc,
+        const ERL_NIF_TERM argv[]) {
+    module_private_data* module_data = enif_priv_data(env);
+    JQCancelableStateHolderResource* obj =
+        enif_alloc_resource(module_data->jq_state_holder_resource_type,
+                            sizeof(JQCancelableStateHolderResource));
+    obj->state = NULL;
+    static char* lock_name = "jq_nif_resource_lock";
+    obj->lock = enif_mutex_create(lock_name);
+    obj->consumed_by_process_json_nif = false;
+    // Start by locking the lock to make sure jq_state is set before timeout
+    // The lock needs to be unlocked in process_json_with_jq_resource_nif after
+    // the state obj->state field has been set or after an error has been
+    // detected.
+    enif_mutex_lock(obj->lock);
+    ERL_NIF_TERM term = enif_make_resource(env, obj);
+    enif_release_resource(obj);
+    return term;
+}
+
+static ERL_NIF_TERM
+cancel_jq_resource_nif(
+        ErlNifEnv* env,
+        int argc,
+        const ERL_NIF_TERM argv[]) {
+    module_private_data* module_data = enif_priv_data(env);
+    JQCancelableStateHolderResource* obj;
+    if (enif_get_resource(
+                env,
+                argv[0],
+                module_data->jq_state_holder_resource_type,
+                (void**)&obj)) {
+        if (!obj->consumed_by_process_json_nif) {
+            // The resource has not been passed to process_json_nif yet. We
+            // schedule ourselves out and will try again later
+            enif_consume_timeslice(env, 100);
+            return enif_make_atom(env, "retry");
+        }
+        enif_mutex_lock(obj->lock);
+        if (obj->state != NULL) {
+            // jq_cancel is a function to cancel the jq execution from
+            // another thread. This function only exists in the our
+            // patched version of the jq library.
+            jq_cancel(obj->state);
+        }
+        enif_mutex_unlock(obj->lock);
+    } else {
+        return enif_make_badarg(env);
+    }
+    return enif_make_atom(env, "ok");
+}
+
 // NIF function taking a binaries for a filter program and a JSON text
 // and returning the result of processing the JSON text with the
-// filter program 
+// filter program. The third argument can be a NIF resource that other
+// threads can use to cancel the execution
 static ERL_NIF_TERM process_json_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[]) {
     ERL_NIF_TERM error_msg_bin; 
     // ----------------------------- init --------------------------------------
@@ -264,7 +342,25 @@ static ERL_NIF_TERM process_json_nif(ErlNifEnv* env, int argc, const ERL_NIF_TER
     int ret = JQ_ERROR_UNKNOWN;
     ERL_NIF_TERM ret_term;
     int dumpopts = 512; // JV_PRINT_SPACE1
-
+    JQCancelableStateHolderResource* cancelable_state_holder = NULL; 
+    bool cancelable_state_holder_opened = false;
+    if (argc > 2) {
+        // Third argument is a NIF resource for canceling
+        // the jq execution from another thread
+        module_private_data* module_data = enif_priv_data(env);
+        if (!enif_get_resource(
+                    env,
+                    argv[2],
+                    module_data->jq_state_holder_resource_type,
+                    (void**)&cancelable_state_holder)) {
+            ret = JQ_ERROR_BADARG;
+            const char* error_message =
+                "Expected a resource as third argument";
+            error_msg_bin =
+                make_error_msg_bin(env, error_message, strlen(error_message));
+            goto out;
+        }
+    }
     // --------------------------- read args -----------------------------------
     ErlNifBinary erl_jq_filter;
     ErlNifBinary erl_json_text;
@@ -280,13 +376,24 @@ static ERL_NIF_TERM process_json_nif(ErlNifEnv* env, int argc, const ERL_NIF_TER
     if (setjmp(nomem_handling_jmp_buf)) {
         // Give badarg exception as this seems more reasonable than allocating and
         // returning an error tuple when we have run out of memory
+        if (cancelable_state_holder != NULL && !cancelable_state_holder_opened) {
+            cancelable_state_holder->consumed_by_process_json_nif = true;
+            enif_mutex_unlock(cancelable_state_holder->lock);
+        }
         return enif_make_badarg(env);
     }
     // --------- get jq state and compile filter program if not cached ---------
     jq = get_jq_state(env, &error_msg_bin, &ret, erl_jq_filter, &remove_jq_object);
     if (jq == NULL) {
         goto out;
+    } else if (cancelable_state_holder != NULL) {
+        cancelable_state_holder->state = jq;
+        // jq state can be timed out after the following unlock call
+        cancelable_state_holder->consumed_by_process_json_nif = true;
+        enif_mutex_unlock(cancelable_state_holder->lock);
+        cancelable_state_holder_opened = true;
     }
+
     ERL_NIF_TERM ret_list = enif_make_list(env, 0);
     ret = process_json(
             jq,
@@ -296,8 +403,22 @@ static ERL_NIF_TERM process_json_nif(ErlNifEnv* env, int argc, const ERL_NIF_TER
             0,
             dumpopts,
             &error_msg_bin);
+    if (cancelable_state_holder != NULL) {
+        // We don't want any timeouts after this point 
+        enif_mutex_lock(cancelable_state_holder->lock);
+        cancelable_state_holder->state = NULL;
+        enif_mutex_unlock(cancelable_state_holder->lock);
+    }
 
 out:// ----------------------------- release -----------------------------------
+    if (cancelable_state_holder != NULL && !cancelable_state_holder_opened) {
+        // The cancelable_state_holder->lock should be locked when this
+        // function call starts and its very important that it gets unlocked
+        // before this function returns as the function cancel_jq_resource_nif
+        // will otherwise get stuck.
+        cancelable_state_holder->consumed_by_process_json_nif = true;
+        enif_mutex_unlock(cancelable_state_holder->lock);
+    }
     switch (ret) {
         default:
             assert(0 && "invalid ret");
@@ -306,6 +427,7 @@ out:// ----------------------------- release -----------------------------------
         case JQ_ERROR_BADARG:
         case JQ_ERROR_COMPILE:
         case JQ_ERROR_PARSE:
+        case JQ_ERROR_TIMEOUT:
         case JQ_ERROR_PROCESS: {
             ret_term = make_error_return(env, ret, error_msg_bin);
             break;
@@ -386,6 +508,19 @@ static int get_int_config(
     return 0;
 }
 
+
+static void jq_state_holder_resource_dtor(ErlNifEnv* caller_env, void* obj) {
+    JQCancelableStateHolderResource* data = obj;
+    if (!data->consumed_by_process_json_nif) {
+        // The process that created the resource must have been killed before
+        // the resource was used in the process_json_with_jq_resource/3 call so
+        // the lock is locked. We must unlock it here as trying to destroy an
+        // acquired lock will result in an error.
+        enif_mutex_unlock(data->lock);
+    }
+    enif_mutex_destroy(data->lock);
+}
+
 static int load_helper(
         ErlNifEnv* caller_env,
         void** priv_data,
@@ -436,6 +571,14 @@ static int load_helper(
         erljq_free(data);
         return 1;
     }
+    static const char * jq_state_holder_resource_type_name = "jq_state_holder_resource_type";
+    data->jq_state_holder_resource_type = enif_open_resource_type(
+            caller_env,
+            NULL,
+            jq_state_holder_resource_type_name,
+            jq_state_holder_resource_dtor,
+            ERL_NIF_RT_CREATE | ERL_NIF_RT_TAKEOVER,
+            NULL); 
     JQStateCacheEntry_lru_ptr_dynarr_init(&data->caches);
     *priv_data = data;
     return 0;
@@ -478,6 +621,9 @@ static ErlNifFunc nif_funcs[] = {
        for a much longer time than is should).
     */
     {"process_json", 2, process_json_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
+    {"create_jq_resource", 0, create_jq_resource_nif, 0},
+    {"cancel_jq_resource", 1, cancel_jq_resource_nif, 0},
+    {"process_json_with_jq_resource", 3, process_json_nif, ERL_NIF_DIRTY_JOB_CPU_BOUND},
     {"set_filter_program_lru_cache_max_size", 1, set_filter_program_lru_cache_max_size_nif, 0},
     {"get_filter_program_lru_cache_max_size", 0, get_filter_program_lru_cache_max_size_nif, 0}
 };

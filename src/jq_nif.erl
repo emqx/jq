@@ -3,8 +3,10 @@
 
 -export([
            process_json/2
+         , process_json/3
          , set_filter_program_lru_cache_max_size/1
-         , get_filter_program_lru_cache_max_size/0]
+         , get_filter_program_lru_cache_max_size/0
+         , timeout_resource/1]
        ).
 
 -on_load(init/0).
@@ -15,6 +17,41 @@
 
 process_json(_, _) ->
     not_loaded(?LINE).
+
+create_jq_resource() ->
+    not_loaded(?LINE).
+
+cancel_jq_resource(_JQResource) ->
+    not_loaded(?LINE).
+
+process_json_with_jq_resource(_FilterProgram, _JSONText, _JQResource) ->
+    not_loaded(?LINE).
+
+
+timeout_resource(JQResource) ->
+    case cancel_jq_resource(JQResource) of
+        ok -> ok;
+        retry ->
+            % Attempt to give dirty schedulers some time before continuing
+            timer:sleep(1),
+            timeout_resource(JQResource)
+    end.
+
+process_json(FilterProgram, JSONText, TimeoutMs) ->
+    JQResource  = create_jq_resource(),
+    {ok, TRef} = timer:apply_after(TimeoutMs, jq_nif, timeout_resource, [JQResource]),
+    Res = process_json_with_jq_resource(FilterProgram, JSONText, JQResource),
+    timer:cancel(TRef),
+    case Res of
+        {error, {timeout, _}} ->
+            ErrorMsgFormatTO = 
+                "jq program canceled as it took too long time to execute (timeout set to ~w ms)",
+            ErrorMsgTO =
+                erlang:iolist_to_binary(io_lib:format(ErrorMsgFormatTO, [TimeoutMs])),
+            logger:error(ErrorMsgTO),
+            {error, {timeout, ErrorMsgTO}};
+        Term -> Term
+    end.
 
 set_filter_program_lru_cache_max_size(_) ->
     not_loaded(?LINE).

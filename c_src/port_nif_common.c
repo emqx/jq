@@ -13,7 +13,8 @@ char* err_tags[] = {
     "jq_err_badarg",    // 3
     "jq_err_compile",   // 4
     "jq_err_parse",     // 5
-    "jq_err_process"    // 6
+    "jq_err_process",   // 6
+    "timeout"           // 7 
 };
 static const char* ERR_MSG_COULD_NOT_INIT = "jq_init: Could not initialize jq";
 static const char* ERR_MSG_COMPILATION_FAILED = "Compilation of jq filter failed";
@@ -143,23 +144,38 @@ int process_json_common(
       String_dynarr_push(result_strings, port_res_str);
       jv_free(res_jv_str);
   }
-
-  if (jv_invalid_has_msg(jv_copy(result))) {
+  if (jq_canceled(jq)) {
+        // Use define for format because the compiler complains if its
+        // not a literal
+      #define ERL_JQ_ERR_MSG \
+          "jq program canceled as it took too long time to execute"  
+      size_t binsz =
+          snprintf(NULL, 0, ERL_JQ_ERR_MSG) + 1;
+      char* bin_data = erljq_alloc(binsz);
+      snprintf(bin_data, binsz, ERL_JQ_ERR_MSG);
+      #undef ERL_JQ_ERR_MSG
+      *error_msg_wb = bin_data;
+      ret = JQ_ERROR_TIMEOUT;
+  } else if (jv_invalid_has_msg(jv_copy(result))) {
     // Uncaught jq exception
     jv msg = jv_invalid_get_msg(jv_copy(result));
     if (jv_get_kind(msg) == JV_KIND_STRING) {
+        #define ERL_JQ_ERR_MSG "jq error: %s\n"  
         size_t binsz =
-            snprintf(NULL, 0, "jq error: %s\n", jv_string_value(msg)) + 1;
+            snprintf(NULL, 0, ERL_JQ_ERR_MSG, jv_string_value(msg)) + 1;
         char* bin_data = erljq_alloc(binsz);
-        snprintf(bin_data, binsz, "jq error: %s\n", jv_string_value(msg));
+        snprintf(bin_data, binsz, ERL_JQ_ERR_MSG, jv_string_value(msg));
+        #undef ERL_JQ_ERR_MSG
         *error_msg_wb = bin_data;
     } else {
         msg = jv_dump_string(msg, 0);
-        size_t binsz = snprintf(NULL, 0, "jq error (not a string): %s\n",
+        #define ERL_JQ_ERR_MSG "jq error (not a string): %s\n"  
+        size_t binsz = snprintf(NULL, 0, ERL_JQ_ERR_MSG,
                 jv_string_value(msg)) + 1;
         char* bin_data = erljq_alloc(binsz);
-        snprintf(bin_data, binsz, "jq error (not a string): %s\n",
+        snprintf(bin_data, binsz, ERL_JQ_ERR_MSG,
                 jv_string_value(msg));
+        #undef ERL_JQ_ERR_MSG
         *error_msg_wb = bin_data;
     }
     ret = JQ_ERROR_PROCESS;

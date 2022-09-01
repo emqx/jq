@@ -8,7 +8,7 @@
     stdlib
    ]},
   {env,[]},
-  {modules, [jq_port, jq_port_app, jq_port_sup]},
+  {modules, [jq, jq_app, jq_port, jq_nif, jq_port_sup]},
 
   {licenses, ["Apache 2.0"]},
   {links, []}

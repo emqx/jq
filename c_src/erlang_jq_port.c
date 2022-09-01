@@ -271,6 +271,14 @@ error_on_write_out_0:
         return false;
     } else {
         const char* error_str = "error";
+        // We might have results in the result strings. This can happen
+        // when we get a result out from jq before an error happens
+        size_t nr_of_result_objects = String_dynarr_size(&result_strings);
+        for (size_t i = 0; i < nr_of_result_objects; i++) {
+            String result = String_dynarr_item_at(&result_strings, i);
+            erljq_free(result.string);
+        }
+        String_dynarr_destroy(&result_strings);
         if (write_packet((byte*)error_str, strlen(error_str)) <= 0) {
             goto error_on_write_out_1;
         }

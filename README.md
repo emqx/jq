@@ -50,7 +50,7 @@ application is loaded (the jq Erlang application is loaded automatically when
 * `jq_filter_program_lru_cache_max_size` (default value = 500) - Sets the size of
   the LRU caches that are holding compiled JQ programs to prevent frequent
   expensive recompilation of the same program.
-* `jq_implementation_module` (default value = `jq_port`) - Sets the implementation
+* `jq_implementation_module` (default value = `jq_nif`) - Sets the implementation
   that will be used. The options are:
   * `jq_port` - This implementation uses a port program to interact with jq.
     This is the most safe option as a bug in jq cannot
@@ -58,11 +58,13 @@ application is loaded (the jq Erlang application is loaded automatically when
   * `jq_nif` - This implementation uses a NIF library to interact with jq. This
     option is faster than the `jq_port` option but it is also less safe even
     though we are currently not not aware of any problems with this option.
+  One can use the function `jq:set_implementation_module/2` to change the
+  implementation while the application is running.
 * `jq_port_nr_of_jq_port_servers` (default value =
   `erlang:system_info(schedulers)`) (only relevant for the `jq_port` option) -
   Use this option to set how many port programs that will handle jq requests.
   Higher values can lead to better performance (due to parallelism) at the
-  expense of increased memory usage and cache locality. 
+  expense of increased memory usage and worse cache locality. 
 * `jq_port_restart_period` (default value = 1000000) (only relevant for the
   `jq_port` option) - Use this option to set how many `jq:process_json/2` calls
   a port program can process before it is restarted. This is a safety option

@@ -108,18 +108,23 @@ timeout_t_() ->
         "while(. < 42; . * 2)"),
     TO = fun() -> {error, {timeout, _}} = jq:process_json(Program, "-2", 10) end,
     OK = fun() -> {ok, [<<"64">>]} = jq:process_json(Program, "2", 10000) end,
-    NrOfSubProcesses = 10,
+    NrOfSubProcesses = 30,
     TimeoutAndThenNot = 
     fun () ->
-        OK,
-        TO,
-        OK,
+        OK(),
+        TO(),
+        OK(),
         Parent = self(),
-        Pids = [ spawn_link(fun() -> OK(), TO(), OK(), Parent ! self() end) ||
+        Pids = [ spawn_link(fun() ->
+                                    OK(),
+                                    TO(),
+                                    OK(),
+                                    Parent ! self() end) ||
                  _ <- lists:seq(1, NrOfSubProcesses)],
-       lists:sum([ receive X -> 1 end || X <- Pids])
+        timer:sleep(500),
+        lists:sum([ receive X -> 1 end || X <- Pids])
     end,
-    [
+    {timeout, 60, [
        ?_assertMatch({ok, [<<"64">>]},
                      jq:process_json(Program, "2", 10000))
      , ?_assertMatch({ok, [<<"64">>]},
@@ -129,7 +134,7 @@ timeout_t_() ->
      , ?_assertMatch({error, {timeout, _}},
                      jq:process_json(Program, "-2",100))
      , ?_assertMatch(NrOfSubProcesses, TimeoutAndThenNot())
-    ].
+    ]}.
 timeout_test_() -> wrap_setup_cleanup(timeout_t_()).
 
 parse_error_t_() ->
@@ -250,8 +255,8 @@ concurrent_queries_test(NrOfTestProcesses, PrintThroughput, CacheSize, TestTimeM
     ShouldStop = counters:new(1, []),
     TestCases = get_tests_cases(), 
     Self = erlang:self(),
-    % OldCacheSize = jq:get_filter_program_lru_cache_max_size(),
-    % ok = jq:set_filter_program_lru_cache_max_size(CacheSize),
+    OldCacheSize = jq:get_filter_program_lru_cache_max_size(),
+    ok = jq:set_filter_program_lru_cache_max_size(CacheSize),
     TestRunner = fun() ->
                     repeat_tests(Self, ShouldStop, TestCases, TestCases, 0)
                  end,
@@ -270,7 +275,7 @@ concurrent_queries_test(NrOfTestProcesses, PrintThroughput, CacheSize, TestTimeM
                             CacheSize});
         false -> ok
     end,
-    % ok = jq:set_filter_program_lru_cache_max_size(OldCacheSize),
+    ok = jq:set_filter_program_lru_cache_max_size(OldCacheSize),
     ok.
 
 qubes_helper(0, SoFar) ->
@@ -322,7 +327,31 @@ setup_nif() ->
     jq:set_implementation_module(jq_nif),
     PrevImpMod.
 
+%% This function attempts to trigger global gc by adding and removing terms
+%% from persistent storage
+trigger_global_gc() ->
+    Cnt = 20,
+    timer:sleep(200),
+    [persistent_term:put({waste_term, X}, lists:seq(1, 100 + X)) || X <- lists:seq(1, Cnt)],
+    [persistent_term:erase({waste_term, X}) || X <- lists:seq(1, Cnt)].
+
+
 cleanup_nif(PrevImpMod) ->
+    %% For some reason this seems to clean up NIF resources that are previously
+    %% passed to timer:apply_after in the parameters list
+    trigger_global_gc(),
+    OuterSelf = self(),
+    TimerFun =
+       fun() ->
+               Self = self(),
+               timer:apply_after(10, erlang, send, [Self, timeout_done]),
+               receive timeout_done -> ok end,
+               OuterSelf ! fixed
+       end,
+    NrOfSpawns = 1000,
+    [spawn(TimerFun) || _ <- lists:seq(1, NrOfSpawns)],
+    [receive fixed -> ok end || _ <- lists:seq(1, NrOfSpawns)],
+    trigger_global_gc(),
     true = code:delete(jq_nif),
     true = code:soft_purge(jq_nif),
     jq:set_implementation_module(PrevImpMod).

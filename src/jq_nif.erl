@@ -29,18 +29,43 @@ process_json_with_jq_resource(_FilterProgram, _JSONText, _JQResource) ->
 
 
 timeout_resource(JQResource) ->
+    timeout_resource(JQResource, 0).
+timeout_resource(_JQResource, 9000) ->
+    %% 8001 seconds (~=2h 13m) after the timeout has expired without successfully
+    %% timing out the jq execution, we can be sure that one of the following
+    %% scenarios must be true:
+    %%
+    %% 1. The execution of process_json/3 got interrupted between the lines
+    %%    commented with PLACE_1 and PLACE_2. This could happen if a kill signal
+    %%    is sent from another process
+    %% 2. Something is seriously broken with the timeout logic
+    %% 3. The system is unrealistically slow or broken
+    %% 4. The jq program given to jq takes an unrealistically long time to compile
+    %% 5. There is a bug in the jq library (e.g., it gets stuck in an infinite
+    %%    loop while compiling the jq expression)
+    %%
+    %% We assume that scenarios 2 to 5 are not happening and stop attempting to
+    %% cancel the jq execution. JQResource will eventually be cleaned when no
+    %% reference exists.
+    ok;
+timeout_resource(JQResource, Attempts) ->
+    SleepTimeMs =
+        case Attempts of
+            X when X < 1000 -> 1;
+            _ -> 1000 %% Increase sleep time to 1 second after 1000 attempts
+        end,
     case cancel_jq_resource(JQResource) of
         ok -> ok;
         retry ->
             % Attempt to give dirty schedulers some time before continuing
-            timer:sleep(1),
-            timeout_resource(JQResource)
+            timer:sleep(SleepTimeMs),
+            timeout_resource(JQResource, Attempts + 1)
     end.
 
 process_json(FilterProgram, JSONText, TimeoutMs) ->
     JQResource  = create_jq_resource(),
-    {ok, TRef} = timer:apply_after(TimeoutMs, jq_nif, timeout_resource, [JQResource]),
-    Res = process_json_with_jq_resource(FilterProgram, JSONText, JQResource),
+    {ok, TRef} = timer:apply_after(TimeoutMs, jq_nif, timeout_resource, [JQResource]), %% PLACE_1
+    Res = process_json_with_jq_resource(FilterProgram, JSONText, JQResource), %% PLACE_2
     timer:cancel(TRef),
     case Res of
         {error, {timeout, _}} ->

@@ -282,20 +282,15 @@ create_jq_resource_nif(
         int argc,
         const ERL_NIF_TERM argv[]) {
     module_private_data* module_data = enif_priv_data(env);
-    JQCancelableStateHolderResource* obj =
+    JQCancelableStateHolderResource* cancelable_state_holder =
         enif_alloc_resource(module_data->jq_state_holder_resource_type,
                             sizeof(JQCancelableStateHolderResource));
-    obj->state = NULL;
+    cancelable_state_holder->state = NULL;
     static char* lock_name = "jq_nif_resource_lock";
-    obj->lock = enif_mutex_create(lock_name);
-    atomic_init(&obj->consumed_by_process_json_nif, false);
-    // Start by locking the lock to make sure jq_state is set before timeout
-    // The lock needs to be unlocked in process_json_with_jq_resource_nif after
-    // the state obj->state field has been set or after an error has been
-    // detected.
-    enif_mutex_lock(obj->lock);
-    ERL_NIF_TERM term = enif_make_resource(env, obj);
-    enif_release_resource(obj);
+    cancelable_state_holder->lock = enif_mutex_create(lock_name);
+    atomic_init(&cancelable_state_holder->consumed_by_process_json_nif, false);
+    ERL_NIF_TERM term = enif_make_resource(env, cancelable_state_holder);
+    enif_release_resource(cancelable_state_holder);
     return term;
 }
 
@@ -305,26 +300,26 @@ cancel_jq_resource_nif(
         int argc,
         const ERL_NIF_TERM argv[]) {
     module_private_data* module_data = enif_priv_data(env);
-    JQCancelableStateHolderResource* obj;
+    JQCancelableStateHolderResource* cancelable_state_holder;
     if (enif_get_resource(
                 env,
                 argv[0],
                 module_data->jq_state_holder_resource_type,
-                (void**)&obj)) {
-        if (!atomic_load(&obj->consumed_by_process_json_nif)) {
+                (void**)&cancelable_state_holder)) {
+        if (!atomic_load(&cancelable_state_holder->consumed_by_process_json_nif)) {
             // The resource has not been passed to process_json_nif yet. We
             // schedule ourselves out and will try again later
             enif_consume_timeslice(env, 100);
             return enif_make_atom(env, "retry");
         }
-        enif_mutex_lock(obj->lock);
-        if (obj->state != NULL) {
+        enif_mutex_lock(cancelable_state_holder->lock);
+        if (cancelable_state_holder->state != NULL) {
             // jq_cancel is a function to cancel the jq execution from
             // another thread. This function only exists in the our
             // patched version of the jq library.
-            jq_cancel(obj->state);
+            jq_cancel(cancelable_state_holder->state);
         }
-        enif_mutex_unlock(obj->lock);
+        enif_mutex_unlock(cancelable_state_holder->lock);
     } else {
         return enif_make_badarg(env);
     }
@@ -379,7 +374,6 @@ static ERL_NIF_TERM process_json_nif(ErlNifEnv* env, int argc, const ERL_NIF_TER
         // returning an error tuple when we have run out of memory
         if (cancelable_state_holder != NULL && !cancelable_state_holder_opened) {
             atomic_store(&cancelable_state_holder->consumed_by_process_json_nif, true);
-            enif_mutex_unlock(cancelable_state_holder->lock);
         }
         return enif_make_badarg(env);
     }
@@ -391,7 +385,6 @@ static ERL_NIF_TERM process_json_nif(ErlNifEnv* env, int argc, const ERL_NIF_TER
         cancelable_state_holder->state = jq;
         // jq state can be timed out after the following unlock call
         atomic_store(&cancelable_state_holder->consumed_by_process_json_nif, true);
-        enif_mutex_unlock(cancelable_state_holder->lock);
         cancelable_state_holder_opened = true;
     }
 
@@ -413,12 +406,7 @@ static ERL_NIF_TERM process_json_nif(ErlNifEnv* env, int argc, const ERL_NIF_TER
 
 out:// ----------------------------- release -----------------------------------
     if (cancelable_state_holder != NULL && !cancelable_state_holder_opened) {
-        // The cancelable_state_holder->lock should be locked when this
-        // function call starts and its very important that it gets unlocked
-        // before this function returns as the function cancel_jq_resource_nif
-        // will otherwise get stuck.
         atomic_store(&cancelable_state_holder->consumed_by_process_json_nif, true);
-        enif_mutex_unlock(cancelable_state_holder->lock);
     }
     switch (ret) {
         default:
@@ -511,15 +499,8 @@ static int get_int_config(
 
 
 static void jq_state_holder_resource_dtor(ErlNifEnv* caller_env, void* obj) {
-    JQCancelableStateHolderResource* data = obj;
-    if (!atomic_load(&data->consumed_by_process_json_nif)) {
-        // The process that created the resource must have been killed before
-        // the resource was used in the process_json_with_jq_resource/3 call so
-        // the lock is locked. We must unlock it here as trying to destroy an
-        // acquired lock will result in an error.
-        enif_mutex_unlock(data->lock);
-    }
-    enif_mutex_destroy(data->lock);
+    JQCancelableStateHolderResource* cancelable_state_holder = obj;
+    enif_mutex_destroy(cancelable_state_holder->lock);
 }
 
 static int load_helper(

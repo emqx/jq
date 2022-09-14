@@ -108,23 +108,31 @@ timeout_t_() ->
         "while(. < 42; . * 2)"),
     TO = fun() -> {error, {timeout, _}} = jq:process_json(Program, "-2", 10) end,
     OK = fun() -> {ok, [<<"64">>]} = jq:process_json(Program, "2", 10000) end,
-    NrOfSubProcesses = 30,
+    NrOfSubProcesses = 10,
     TimeoutAndThenNot = 
     fun () ->
         OK(),
         TO(),
         OK(),
         Parent = self(),
+        ct:pal("Starting concurrent processes that will timeout. Implementation module ~p", [jq:implementation_module()]),
         Pids = [ spawn_link(fun() ->
+                                    % ct:pal("Starting process ~p ~p", [X, self()]),
                                     OK(),
                                     TO(),
                                     OK(),
                                     Parent ! self() end) ||
-                 _ <- lists:seq(1, NrOfSubProcesses)],
-        timer:sleep(500),
-        lists:sum([ receive X -> 1 end || X <- Pids])
+                 X <- lists:seq(1, NrOfSubProcesses)],
+        ct:pal("Starting to wait for processes"),
+        Sum = lists:sum([ begin 
+                              % erlang:display({'Process finnished timeout', X}),
+                              receive X -> 1 end
+                          end || X <- Pids]),
+        ct:pal("Done with concurrent timeout test"),
+        Sum
     end,
-    {timeout, 60, [
+    %% Timout setting does not seem to be working on Mac OS (a bug?)
+    {timeout, 3000, [
        ?_assertMatch({ok, [<<"64">>]},
                      jq:process_json(Program, "2", 10000))
      , ?_assertMatch({ok, [<<"64">>]},
@@ -323,6 +331,7 @@ port_program_valgrind_test_() ->
 -endif.
 
 setup_nif() ->
+    ct:pal("Setup NIF, Schedulers online ~p", [erlang:system_info(schedulers_online)]),
     PrevImpMod = jq:implementation_module(),
     jq:set_implementation_module(jq_nif),
     PrevImpMod.
@@ -337,6 +346,7 @@ trigger_global_gc() ->
 
 
 cleanup_nif(PrevImpMod) ->
+    ct:pal("Cleanup NIF ~p", [erlang:system_info(schedulers_online)]),
     %% For some reason this seems to clean up NIF resources that are previously
     %% passed to timer:apply_after in the parameters list
     trigger_global_gc(),
@@ -348,7 +358,7 @@ cleanup_nif(PrevImpMod) ->
                receive timeout_done -> ok end,
                OuterSelf ! fixed
        end,
-    NrOfSpawns = 1000,
+    NrOfSpawns = 150,
     [spawn(TimerFun) || _ <- lists:seq(1, NrOfSpawns)],
     [receive fixed -> ok end || _ <- lists:seq(1, NrOfSpawns)],
     trigger_global_gc(),
@@ -357,11 +367,13 @@ cleanup_nif(PrevImpMod) ->
     jq:set_implementation_module(PrevImpMod).
 
 setup_port() ->
+    ct:pal("Setup Port, Schedulers online ~p", [erlang:system_info(schedulers_online)]),
     PrevImpMod = jq:implementation_module(),
     jq:set_implementation_module(jq_port),
     PrevImpMod.
 
 cleanup_port(PrevImpMod) ->
+    ct:pal("Cleanup Port"),
     application:stop(jq),
     jq:set_implementation_module(PrevImpMod).
 

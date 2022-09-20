@@ -8,7 +8,7 @@
 
 -behaviour(application).
 
--export([start/2, stop/1]).
+-export([start/2, stop/1, config_change/3]).
 
 start(_StartType, _StartArgs) ->
     application:load(jq),
@@ -24,5 +24,13 @@ start(_StartType, _StartArgs) ->
 
 stop(_State) ->
     ok.
+
+
+config_change(Changed, _, _) ->
+    [case V of
+         {jq_implementation_module, Module} ->
+             jq:set_implementation_module(Module);
+         _ -> ok
+     end || V <- Changed].
 
 %% internal functions

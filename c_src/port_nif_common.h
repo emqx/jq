@@ -19,7 +19,8 @@ enum {
     JQ_ERROR_BADARG    =  3,
     JQ_ERROR_COMPILE   =  4,
     JQ_ERROR_PARSE     =  5,
-    JQ_ERROR_PROCESS   =  6
+    JQ_ERROR_PROCESS   =  6,
+    JQ_ERROR_TIMEOUT   =  7
 };
 
 extern char* err_tags[];

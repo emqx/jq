@@ -57,11 +57,7 @@ process_json(FilterProgram, JSONText, TimeoutMs)
                      {bad_timeout_val,
                       io_lib:format("Needs positive integer or infinity but got ~p", [TimeoutMs])}};
                 TimeoutMs ->
-                    %% Timeouts are only supported by the port implementation so
-                    %% for now we use the port implementation when a timeout is
-                    %% given, even if the user has configured the library to use
-                    %% the NIF implementation.
-                    jq_port:process_json(FilterProgram, JSONText, TimeoutMs)
+                    Mod:process_json(FilterProgram, JSONText, TimeoutMs)
             end;
         _ ->
             %% Force execution of the next clause so the inputs gets 0 terminated
@@ -97,6 +93,7 @@ implementation_module() ->
 -spec set_implementation_module('jq_port' | 'jq_nif') -> 'ok'.
 
 set_implementation_module(Module) when Module =:= 'jq_port'; Module =:= 'jq_nif' ->
+    application:set_env(jq, jq_implementation_module, Module),
     persistent_term:put(jq_implementation_module, Module),
     ok.
 
@@ -122,5 +119,5 @@ init() ->
     %% we can read its properties
     application:load(jq),
     JQImplementation =
-        application:get_env(jq, jq_implementation_module, jq_port),
+        application:get_env(jq, jq_implementation_module, jq_nif),
     set_implementation_module(JQImplementation).

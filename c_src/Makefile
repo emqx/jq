@@ -13,9 +13,11 @@ NIF_MODULE := jq_nif
 JQURL := https://github.com/emqx/jqc.git
 JQSRC_DIR := libs/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
+JQSRC_VERSION := 73c51aa79b67b99c575ef8923aa0c03cd87a7ac1
 RDSURL := https://github.com/emqx/c_reusable_data_structures.git
 RDSSRC_DIR := libs/c_reusable_data_structures
 RDSSRC := $(RDSSRC_DIR)/Makefile
+RDSSRC_VERSION := 77c7a96416065a839417e5078fce9ba9a14982dc
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
 LIBJQ_PREFIX := /usr/local
 EXT_LIBS := ext_libs
@@ -104,7 +106,9 @@ PORT_OBJECTS = $(addsuffix .o, $(basename $(PORT_SOURCES)))
 COMPILE_C = $(c_verbose) $(CC) $(CFLAGS) $(CPPFLAGS) -c
 COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
 
-.PHONY: clean
+.PHONY: clean check_jqc_version all check_rds_version
+
+all: check_jqc_version check_rds_version $(C_SRC_OUTPUT)
 
 ifeq ($(JQ_MEMSAN_DEBUG), 1)
 $(C_SRC_OUTPUT): $(OBJECTS) port_nif_common.h
@@ -131,16 +135,25 @@ $(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
 %.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC) $(PORT_SOURCES)
 	$(COMPILE_C) $(OUTPUT_OPTION) $<
 
+check_jqc_version:
+	( cd libs/jqc && \
+	  [ `git rev-parse --verify HEAD` = '$(JQSRC_VERSION)' ] || (cd .. && rm -rf jqc))
+
+
 $(JQSRC):
 	git clone -b jq-1.6-emqx --single-branch "$(JQURL)" "$(JQSRC_DIR)"
-	((cd "$(JQSRC_DIR)" && git checkout 51df83ccf4808867eee79a011c71a93a121be1b6) || \
+	((cd "$(JQSRC_DIR)" && git checkout $(JQSRC_VERSION)) || \
 	     (echo "Failed to check out jq commit" && \
 	      rm -r "$(JQSRC_DIR)" && \
 	      false))
 
+check_rds_version:
+	( cd libs/c_reusable_data_structures && \
+	  [ `git rev-parse --verify HEAD` = '$(RDSSRC_VERSION)' ] || (cd .. && rm -rf c_reusable_data_structures))
+
 $(RDSSRC):
 	git clone -b master --single-branch "$(RDSURL)" "$(RDSSRC_DIR)"
-	((cd "$(RDSSRC_DIR)" && git checkout 77c7a96416065a839417e5078fce9ba9a14982dc) || \
+	((cd "$(RDSSRC_DIR)" && git checkout $(RDSSRC_VERSION)) || \
 	     (echo "Failed to check out c_reusable_data_structures commit" && \
 	      rm -r "$(RDSSRC_DIR)" && \
 	      false))

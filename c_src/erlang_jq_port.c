@@ -9,7 +9,7 @@
  *
  */
 
-
+#define _POSIX_C_SOURCE 1
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -17,6 +17,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <setjmp.h>
+#include <signal.h>
 
 #include "port_nif_common.h"
  
@@ -27,7 +28,8 @@ typedef unsigned char byte;
 
 //#define ACTIVE_LOG_PRINT
 #ifdef ACTIVE_LOG_PRINT
-#define LOG_PRINT(...) do{ fprintf( stderr, __VA_ARGS__ ); } while( false )
+FILE *debug_file;
+#define LOG_PRINT(...) do{ fprintf( debug_file, __VA_ARGS__ );  fflush(debug_file);} while( false )
 #else
 #define LOG_PRINT(...) do{ } while ( false )
 #endif
@@ -36,6 +38,8 @@ static bool record_input = false;
 static FILE* record_input_file;
 static int lru_cache_max_size;
 static JQStateCacheEntry_lru jq_state_cache;
+int pipe_out;
+int pipe_in;
 
 static void* jq_port_alloc(size_t size) {
     void * data = malloc(size);
@@ -154,11 +158,11 @@ static int erlang_jq_port_process_json(
     return ret;
 }
 
-static ssize_t read_exact(byte *buf, size_t len) {
+static ssize_t read_exact(int file_descriptor, byte *buf, size_t len) {
     ssize_t last_read_len;
     size_t got = 0;
     do {
-        if ((last_read_len = read(0, buf + got, len - got)) <= 0) {
+        if ((last_read_len = read(file_descriptor, buf + got, len - got)) <= 0) {
             return last_read_len;
         }
         got += last_read_len;
@@ -172,13 +176,14 @@ static ssize_t read_exact(byte *buf, size_t len) {
     return got;
 }
 
-static ssize_t write_exact(byte *buf, size_t len) {
+static ssize_t write_exact(int file_descriptor, byte *buf, size_t len) {
     ssize_t i;
     size_t wrote = 0;
 
     do {
-        if ((i = write(1, buf+wrote, len-wrote)) <= 0)
+        while ((i = write(file_descriptor, buf+wrote, len-wrote)) < 0) {
             return i;
+        }
         wrote += i;
     } while (wrote<len);
 
@@ -187,10 +192,10 @@ static ssize_t write_exact(byte *buf, size_t len) {
 
 typedef unsigned char byte;
 
-static byte* read_packet() {
+static byte* read_packet_helper(int file_descriptor, bool include_size, uint64_t* size_wb) {
     uint64_t len = 0;
     byte buf[PACKET_SIZE_LEN]; 
-    if (read_exact(buf, PACKET_SIZE_LEN) != PACKET_SIZE_LEN) {
+    if (read_exact(file_descriptor, buf, PACKET_SIZE_LEN) != PACKET_SIZE_LEN) {
         return NULL;
     }
     len = 0;
@@ -198,31 +203,54 @@ static byte* read_packet() {
         size_t addad_byte = (size_t)(buf[PACKET_SIZE_LEN - (i+1)]);
         len = len | (addad_byte << (i * 8));
     }
-    byte* command_content = erljq_alloc(len);
-    if (read_exact(command_content, len) != len) {
+    int extra_for_len = 0;
+    if (include_size) {
+        extra_for_len = PACKET_SIZE_LEN;
+    }
+    byte* command_content = erljq_alloc(len + extra_for_len);
+    if (command_content == NULL) {
+        return NULL;
+    }
+    if (include_size) {
+        for (int i = 0; i < PACKET_SIZE_LEN; i++) {
+            command_content[i] = buf[i];
+        }
+    }
+    if (read_exact(file_descriptor, command_content + extra_for_len, len) != len) {
         erljq_free(command_content);
         return NULL;
+    }
+    if (size_wb != NULL) {
+        *size_wb = len + extra_for_len;
     }
     return command_content;
 }
 
-static int write_packet(byte *buf, size_t len) {
+static byte* read_packet(int file_descriptor) {
+    return read_packet_helper(file_descriptor, false, NULL);
+}
+
+static byte* read_whole_packet(int file_descriptor, uint64_t* size_wb) {
+    return read_packet_helper(file_descriptor, true, size_wb);
+}
+
+static int write_packet(int file_descriptor, byte *buf, size_t len) {
     byte li;
 
     for (int i = 0; i < PACKET_SIZE_LEN; i++) {
         li = (len >> (8 * (PACKET_SIZE_LEN - (i+1)))) & 0xff;
-        write_exact(&li, 1);
+        write_exact(file_descriptor, &li, 1);
     }
 
-    return write_exact(buf, len);
+    return write_exact(file_descriptor, buf, len);
 }
 
 static bool handle_process_json() {
-    byte * jq_program = read_packet();
+    byte * jq_program = read_packet(pipe_in);
     if (jq_program == NULL) {
         return false;
     }
-    byte * json_data = read_packet();
+    byte * json_data = read_packet(pipe_in);
     if (json_data == NULL) {
         erljq_free(jq_program);
         return false;
@@ -240,18 +268,18 @@ static bool handle_process_json() {
     if (res == JQ_OK) {
         size_t nr_of_result_objects = String_dynarr_size(&result_strings);
         int where = 0;
-        if (write_packet((byte*)err_tags[JQ_OK], strlen(err_tags[JQ_OK])) <= 0) {
+        if (write_packet(STDOUT_FILENO, (byte*)err_tags[JQ_OK], strlen(err_tags[JQ_OK])) <= 0) {
             goto error_on_write_out_0;
         }
         char buf[64];
         sprintf(buf, "%lu", nr_of_result_objects);
-        if (write_packet((byte*)buf, strlen(buf)) <= 0) {
+        if (write_packet(STDOUT_FILENO, (byte*)buf, strlen(buf)) <= 0) {
             goto error_on_write_out_0;
         }
 
         for (where = 0; where < nr_of_result_objects; where++) {
             String result = String_dynarr_item_at(&result_strings, where);
-            if (write_packet((byte*)result.string, result.size) <= 0) {
+            if (write_packet(STDOUT_FILENO, (byte*)result.string, result.size) <= 0) {
                 goto error_on_write_out_0;
             }
             erljq_free(result.string);
@@ -279,13 +307,13 @@ error_on_write_out_0:
             erljq_free(result.string);
         }
         String_dynarr_destroy(&result_strings);
-        if (write_packet((byte*)error_str, strlen(error_str)) <= 0) {
+        if (write_packet(STDOUT_FILENO, (byte*)error_str, strlen(error_str)) <= 0) {
             goto error_on_write_out_1;
         }
-        if (write_packet((byte*)err_tags[res], strlen(err_tags[res])) <= 0) {
+        if (write_packet(STDOUT_FILENO, (byte*)err_tags[res], strlen(err_tags[res])) <= 0) {
             goto error_on_write_out_1;
         }
-        if (write_packet((byte*)error_msg, strlen(error_msg)) <= 0) {
+        if (write_packet(STDOUT_FILENO, (byte*)error_msg, strlen(error_msg)) <= 0) {
             goto error_on_write_out_1;
         } 
         erljq_free(error_msg);
@@ -306,7 +334,7 @@ static bool handle_exit() {
         fclose(record_input_file);
     }
     const char* exiting_str = "exiting"; 
-    if (write_packet((byte*)exiting_str, strlen(exiting_str)) <= 0) {
+    if (write_packet(STDOUT_FILENO, (byte*)exiting_str, strlen(exiting_str)) <= 0) {
         return false;
     } else {
         fflush(stdout);
@@ -315,7 +343,7 @@ static bool handle_exit() {
 }
 
 static bool handle_start_record_input() {
-    char* recording_file_name = (char*)read_packet();
+    char* recording_file_name = (char*)read_packet(pipe_in);
     if (recording_file_name == NULL) {
         return false;
     }
@@ -325,7 +353,7 @@ static bool handle_start_record_input() {
         return false;
     }
     const char* ok_str = "ok";
-    if (write_packet((byte*)ok_str, strlen(ok_str)) <= 0) {
+    if (write_packet(STDOUT_FILENO, (byte*)ok_str, strlen(ok_str)) <= 0) {
         erljq_free(recording_file_name);
         fclose(record_input_file);
         return false;
@@ -340,7 +368,7 @@ static bool handle_stop_record_input() {
         fclose(record_input_file);
     }
     const char* ok_str = "ok";
-    if (write_packet((byte*)ok_str, strlen(ok_str)) <= 0) {
+    if (write_packet(STDOUT_FILENO, (byte*)ok_str, strlen(ok_str)) <= 0) {
         return false;
     }
     record_input = false;
@@ -348,14 +376,14 @@ static bool handle_stop_record_input() {
 }
 
 static bool handle_set_filter_program_lru_cache_size() {
-    char* size_str = (char*)read_packet();
+    char* size_str = (char*)read_packet(pipe_in);
     if (size_str == NULL) {
         return false;
     }
     int new_lru_size = atoi(size_str);
     erlang_jq_set_filter_program_lru_cache_size(new_lru_size);
     const char* ok_str = "ok";
-    if (write_packet((byte*)ok_str, strlen(ok_str)) <= 0) {
+    if (write_packet(STDOUT_FILENO, (byte*)ok_str, strlen(ok_str)) <= 0) {
         return false;
     }
     return true;
@@ -364,7 +392,7 @@ static bool handle_set_filter_program_lru_cache_size() {
 static bool handle_get_filter_program_lru_cache_size() {
     char buffer[64];
     sprintf(buffer, "%d", erlang_jq_get_filter_program_lru_cache_size());
-    if (write_packet((byte*)buffer, strlen(buffer)) <= 0) {
+    if (write_packet(STDOUT_FILENO, (byte*)buffer, strlen(buffer)) <= 0) {
         return false;
     }
     return true;
@@ -372,17 +400,75 @@ static bool handle_get_filter_program_lru_cache_size() {
 
 static bool handle_ping() {
     const char* response = "pong";
-    if (write_packet((byte*)response, strlen(response)) <= 0) {
+    if (write_packet(STDOUT_FILENO, (byte*)response, strlen(response)) <= 0) {
         return false;
     }
     return true;
 }
 
+static void child_dead_sig_handler(int signum){
+    LOG_PRINT("Child is dead\n");
+    // Normal exit is not considered safe in signal handlers
+    _Exit(0);
+}
+
+static void input_forwarder_porcess() {
+    // We are in the child process
+    set_erljq_alloc(jq_port_alloc);
+    set_erljq_free(free);
+    byte* packet;
+    uint64_t size;
+    while (true) {
+        packet = read_whole_packet(STDIN_FILENO, &size);
+        if (packet == NULL) {
+            LOG_PRINT("STDIN closed. Erlang VM is dead or port is closed. Worker process will get SIGCHLD.\n");
+            break;
+        }
+        ssize_t write_exact_res = write_exact(pipe_out, packet, size);
+        erljq_free(packet);
+        if (write_exact_res != size) {
+            LOG_PRINT("Worker process dead (Killed by someone or closed because port closed)\n");
+            break;
+        }
+    }
+    LOG_PRINT("Exit from child\n");
+    // Parent (worker process) or input stream is dead or broken: exit
+    close(pipe_out);
+}
 
 int main() {
+#ifdef ACTIVE_LOG_PRINT
+    debug_file = fopen("erlang_jq_port_debug.log", "a");
+#endif
+
+    LOG_PRINT("STARTING PORT PROGRAM\n");
+
+    int pipe_ends[2];
+
+    if (pipe(pipe_ends) < 0) {
+        LOG_PRINT("Could not open pipe\n");
+        exit(1);
+    }
+    pipe_in = pipe_ends[0];
+    pipe_out = pipe_ends[1];
+
+    // Trap SIGCHLD so that we can kill ourself if our child dies 
+    struct sigaction act;
+    memset(&act, 0, sizeof(act));
+    act.sa_handler = child_dead_sig_handler;
+    sigaction(SIGCHLD, &act, NULL);
+ 
+    // Forking child process to detect when stdin gets closed
+    if (fork() == 0) {
+        LOG_PRINT("In child process whose purpose is to forward data to main process\n");
+        input_forwarder_porcess();
+        return 0;
+    }
+    LOG_PRINT("In main worker process\n");
+    // Start handling input
     erlang_jq_port_process_init();
     while (true) {
-        byte* command = read_packet();
+        byte* command = read_packet(pipe_in);
         if (command == NULL) {
             LOG_PRINT("Could not read command\n");
             return 1;
@@ -431,6 +517,7 @@ int main() {
         }
     }
 error_return:
+    close(pipe_in);
     LOG_PRINT("Exiting (the Erlang port may have stopped or crached\n");
     return 1;
 }

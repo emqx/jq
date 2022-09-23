@@ -108,7 +108,7 @@ timeout_t_() ->
         "while(. < 42; . * 2)"),
     TO = fun() -> {error, {timeout, _}} = jq:process_json(Program, "-2", 10) end,
     OK = fun() -> {ok, [<<"64">>]} = jq:process_json(Program, "2", 10000) end,
-    NrOfSubProcesses = 10,
+    NrOfSubProcesses = 30,
     TimeoutAndThenNot = 
     fun () ->
         OK(),

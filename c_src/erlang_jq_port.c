@@ -412,7 +412,7 @@ static void child_dead_sig_handler(int signum){
     _Exit(0);
 }
 
-static void input_forwarder_porcess() {
+static void input_forwarder_process() {
     // We are in the child process
     set_erljq_alloc(jq_port_alloc);
     set_erljq_free(free);
@@ -434,6 +434,7 @@ static void input_forwarder_porcess() {
     LOG_PRINT("Exit from child\n");
     // Parent (worker process) or input stream is dead or broken: exit
     close(pipe_out);
+    close(pipe_in);
 }
 
 int main() {
@@ -446,7 +447,7 @@ int main() {
     int pipe_ends[2];
 
     if (pipe(pipe_ends) < 0) {
-        LOG_PRINT("Could not open pipe\n");
+        LOG_PRINT("Could not open pipe %d\n", errno);
         exit(1);
     }
     pipe_in = pipe_ends[0];
@@ -459,10 +460,15 @@ int main() {
     sigaction(SIGCHLD, &act, NULL);
  
     // Forking child process to detect when stdin gets closed
-    if (fork() == 0) {
+    int fork_res;
+    if ((fork_res = fork()) == 0) {
         LOG_PRINT("In child process whose purpose is to forward data to main process\n");
-        input_forwarder_porcess();
+        input_forwarder_process();
         return 0;
+    }
+    if (fork_res == -1) {
+        LOG_PRINT("Could not fork %d\n", errno);
+        exit(1);
     }
     LOG_PRINT("In main worker process\n");
     // Start handling input
@@ -518,6 +524,7 @@ int main() {
     }
 error_return:
     close(pipe_in);
+    close(pipe_out);
     LOG_PRINT("Exiting (the Erlang port may have stopped or crached\n");
     return 1;
 }

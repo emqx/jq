@@ -1,0 +1,8 @@
+{
+   <supress_pthread_create>
+   Memcheck:Leak
+   match-leak-kinds: possible
+   ...
+   fun:pthread_create*
+   fun:main
+}

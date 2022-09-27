@@ -11,13 +11,14 @@
 
 #define _POSIX_C_SOURCE 1
 #include <stdio.h>
-#include <unistd.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
 #include <stdbool.h>
 #include <setjmp.h>
-#include <signal.h>
+#include <unistd.h>
+#include <errno.h>
+#include <pthread.h>
 
 #include "port_nif_common.h"
  
@@ -406,14 +407,7 @@ static bool handle_ping() {
     return true;
 }
 
-static void child_dead_sig_handler(int signum){
-    LOG_PRINT("Child is dead\n");
-    // Normal exit is not considered safe in signal handlers
-    _Exit(0);
-}
-
-static void input_forwarder_process() {
-    // We are in the child process
+static void input_forwarder() {
     set_erljq_alloc(jq_port_alloc);
     set_erljq_free(free);
     byte* packet;
@@ -421,20 +415,27 @@ static void input_forwarder_process() {
     while (true) {
         packet = read_whole_packet(STDIN_FILENO, &size);
         if (packet == NULL) {
-            LOG_PRINT("STDIN closed. Erlang VM is dead or port is closed. Worker process will get SIGCHLD.\n");
+            LOG_PRINT("STDIN closed. Erlang VM is dead or port is closed.\n");
             break;
         }
         ssize_t write_exact_res = write_exact(pipe_out, packet, size);
         erljq_free(packet);
         if (write_exact_res != size) {
-            LOG_PRINT("Worker process dead (Killed by someone or closed because port closed)\n");
+            LOG_PRINT("Worker thread dead\n");
             break;
         }
     }
-    LOG_PRINT("Exit from child\n");
-    // Parent (worker process) or input stream is dead or broken: exit
+    LOG_PRINT("Exit\n");
+    // Worker process or input stream is dead or broken: exit
     close(pipe_out);
     close(pipe_in);
+    exit(0);
+}
+
+void *input_forwarder_thread_start(void *vargp)
+{
+    input_forwarder();
+    return NULL;
 }
 
 int main() {
@@ -453,21 +454,10 @@ int main() {
     pipe_in = pipe_ends[0];
     pipe_out = pipe_ends[1];
 
-    // Trap SIGCHLD so that we can kill ourself if our child dies 
-    struct sigaction act;
-    memset(&act, 0, sizeof(act));
-    act.sa_handler = child_dead_sig_handler;
-    sigaction(SIGCHLD, &act, NULL);
- 
-    // Forking child process to detect when stdin gets closed
-    int fork_res;
-    if ((fork_res = fork()) == 0) {
-        LOG_PRINT("In child process whose purpose is to forward data to main process\n");
-        input_forwarder_process();
-        return 0;
-    }
-    if (fork_res == -1) {
-        LOG_PRINT("Could not fork %d\n", errno);
+    // Creating thread to forward STDIN so we can always detect when STDIN gets closed
+    pthread_t thread_id;
+    if (pthread_create(&thread_id, NULL, input_forwarder_thread_start, NULL) != 0) {
+        LOG_PRINT("Failed to create input forwarder thread\n");
         exit(1);
     }
     LOG_PRINT("In main worker process\n");
@@ -493,22 +483,22 @@ int main() {
             }
         } else if (strcmp((char*)command, "exit") == 0) {
             erljq_free(command);
-            // Normal exit cumunicate back that we are exiting
+            // Normal exit communicate back that we are exiting
             return !handle_exit();
         } else if (strcmp((char*)command, "set_filter_program_lru_cache_max_size") == 0) {
             erljq_free(command);
-            // Normal exit cumunicate back that we are exiting
+            // Normal exit communicate back that we are exiting
             if (!handle_set_filter_program_lru_cache_size()) {
                 goto error_return;
             }
         } else if (strcmp((char*)command, "get_filter_program_lru_cache_max_size") == 0) {
             erljq_free(command);
-            // Normal exit cumunicate back that we are exiting
+            // Normal exit communicate back that we are exiting
             if (!handle_get_filter_program_lru_cache_size()) {
                 goto error_return;
             }
         } 
-        // Recoring input is a debuging functionality that can be used to
+        // Recording input is a debugging functionality that can be used to
         // replay a port program scenario without starting Erlang
         else if (strcmp((char*)command, "start_record_input") == 0) {
             erljq_free(command);
@@ -526,5 +516,6 @@ error_return:
     close(pipe_in);
     close(pipe_out);
     LOG_PRINT("Exiting (the Erlang port may have stopped or crached\n");
+    exit(1);
     return 1;
 }

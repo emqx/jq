@@ -199,6 +199,7 @@ is_port_alive(Port) ->
     end.
 
 kill_port(Port) ->
+    Port ! {self(), {command, <<"exit\0">>}},
     erlang:port_close(Port),
     ok.
 

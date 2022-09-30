@@ -20,7 +20,7 @@ erl -noshell -pa "$TOP_DIR/_build/test/lib/jq/ebin" -pa "$TOP_DIR/_build/test/li
 
 # Run port program under valgrind with the generated input
 
-cat "$SCRIPT_DIR/test_record.bin" | valgrind --leak-check=full ./priv/erlang_jq_port > /dev/null 1>"$SCRIPT_DIR/port_program_stdout.bin" 2> "$SCRIPT_DIR/port_program_stderr.txt"
+cat "$SCRIPT_DIR/test_record.bin" | valgrind --suppressions=./test/valgrind_supression.txt --leak-check=full --show-leak-kinds=all ./priv/erlang_jq_port > /dev/null 1>"$SCRIPT_DIR/port_program_stdout.bin" 2> "$SCRIPT_DIR/port_program_stderr.txt"
 
 cat "$SCRIPT_DIR/port_program_stderr.txt" | grep 'ERROR SUMMARY: 0 error' > /dev/null
 

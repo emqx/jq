@@ -199,38 +199,8 @@ is_port_alive(Port) ->
     end.
 
 kill_port(Port) ->
-    TimeToWaitForExitingConfirmation =
-        application:get_env(jq, jq_port_ms_to_wait_for_exit_confirmation, 100),
     Port ! {self(), {command, <<"exit\0">>}},
-    receive
-        {Port, {data, <<"exiting">>}} -> 
-            ok
-    after TimeToWaitForExitingConfirmation ->
-              PortInfoRes = erlang:port_info(Port, os_pid),
-              case PortInfoRes of
-                  {os_pid, OsPid} when is_integer(OsPid) ->
-                      KillCmdFormat =
-                      case os:type() of
-                          {win32, _} ->
-                              "taskkill /PID ~p /F";
-                          {_, _ } -> 
-                              %% We assume it is UNIX or some other OS
-                              %% with an UNIX kill command.
-                              "kill -9 ~p"
-                      end,
-                      %% This is theoretically unsafe as the process
-                      %% might have died and the its PID got reused.
-                      %% However, on mainstream systems it should not
-                      %% be a problem as it is unlikely that the same
-                      %% PID will get reused very quickly.
-                      os:cmd(io_lib:format(KillCmdFormat, [OsPid]));
-                  _ ->
-                      %% Process should be closed already if we did
-                      %% not get an integer
-                      ok
-              end,
-              ok
-    end,
+    erlang:port_close(Port),
     ok.
 
 send_msg_to_port(Port, Msg) ->

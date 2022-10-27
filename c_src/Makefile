@@ -61,7 +61,7 @@ ifeq ($(UNAME_SYS), Darwin)
 	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -arch $(ARCH) -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= -O3 -arch $(ARCH) -finline-functions -Wall
-	LDFLAGS ?= -arch $(ARCH) -flat_namespace -undefined suppress
+	LDFLAGS ?= -arch $(ARCH) -undefined dynamic_lookup
 	LD_JQLIBS ?= -ljq -lonig
 else ifeq ($(UNAME_SYS), FreeBSD)
 	CC ?= gcc

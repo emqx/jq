@@ -31,7 +31,8 @@ jobs:
           key: brew-${{ matrix.os }}-${{ matrix.otp  }}
       - name: prepare
         run: |
-          brew update
+          # See https://github.com/actions/setup-python/issues/577
+          # brew update
           brew install erlang@${{ matrix.otp }}
           brew install automake
           brew install bison

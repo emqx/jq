@@ -32,7 +32,8 @@ jobs:
 
       - name: prepare
         run: |
-          brew update
+          # See https://github.com/actions/setup-python/issues/577
+          # brew update
           brew install curl zip unzip gnu-sed automake bison
           brew install erlang@${{ matrix.otp }}
           echo "/usr/local/bin" >> $GITHUB_PATH

@@ -17,13 +17,13 @@ jobs:
           - macos-12
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           submodules: recursive
           fetch-depth: 0
 
       - name: Configure Homebrew cache
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         with:
           path: |
             ~/Library/Caches/Homebrew/
@@ -45,7 +45,7 @@ jobs:
           export PATH="/usr/local/opt/erlang@${{ matrix.otp }}/bin:$PATH"
           env BUILD_RELEASE=1 ./build.sh
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           name: packages
@@ -80,11 +80,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - uses: docker/setup-buildx-action@v1
+      - uses: docker/setup-buildx-action@v2
 
       - uses: docker/setup-qemu-action@v2
         with:
@@ -96,7 +96,7 @@ jobs:
           IMAGE=ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
           docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} -e BUILD_RELEASE=1 $IMAGE bash -euc './build.sh'
 
-      - uses: actions/upload-artifact@v2
+      - uses: actions/upload-artifact@v3
         if: startsWith(github.ref, 'refs/tags/')
         with:
           name: packages
@@ -111,7 +111,7 @@ jobs:
       - linux
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/download-artifact@v2
+      - uses: actions/download-artifact@v3
         with:
           name: packages
           path: packages

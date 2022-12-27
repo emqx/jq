@@ -16,6 +16,8 @@ jobs:
         otp:
           - 24
           - 25
+        rebar3:
+          - 3.19.0
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -38,8 +40,12 @@ jobs:
           brew install bison
           echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
           echo "/usr/local/opt/erlang@${{ matrix.otp }}/bin" >> $GITHUB_PATH
+      - name: install rebar3
+        run: |
+          curl -fsSL -o rebar3 https://github.com/erlang/rebar3/releases/download/${{ matrix.rebar3 }}/rebar3
+          chmod +x rebar3
       - name: run tests
-        run: rebar3 eunit
+        run: ./rebar3 eunit
 
   linux:
     runs-on: ubuntu-20.04
@@ -54,6 +60,8 @@ jobs:
           - 25.1.2-2
         elixir:
           - 1.13.4
+        rebar3:
+          - 3.19.0
         os:
           - ubuntu20.04
           - ubuntu18.04
@@ -67,4 +75,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
-    - run: rebar3 eunit
+    - name: install rebar3
+      run: |
+        curl -fsSL -o rebar3 https://github.com/erlang/rebar3/releases/download/${{ matrix.rebar3 }}/rebar3
+        chmod +x rebar3
+    - run: ./rebar3 eunit

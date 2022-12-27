@@ -11,11 +11,11 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - macos-10.15
           - macos-11
+          - macos-12
         otp:
-          - 23
           - 24
+          - 25
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -35,22 +35,24 @@ jobs:
           brew install erlang@${{ matrix.otp }}
           brew install automake
           brew install bison
-      - name: release build
-        run: |
-          export PATH="/usr/local/opt/bison/bin:$PATH"
-          export PATH="/usr/local/opt/erlang@${{ matrix.otp }}/bin:$PATH"
-          ${GITHUB_WORKSPACE}/rebar3 eunit
+          echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
+          echo "/usr/local/opt/erlang@${{ matrix.otp }}/bin" >> $GITHUB_PATH
+      - name: run tests
+        run: rebar3 eunit
+
   linux:
     runs-on: ubuntu-20.04
 
     strategy:
       fail-fast: false
       matrix:
-        erl_otp:
-          - 23.3.4.9-4
-          - 24.2.1-1
+        builder:
+          - 5.0-26
+        otp:
+          - 24.3.4.2-1
+          - 25.1.2-2
         elixir:
-          - 1.13.3
+          - 1.13.4
         os:
           - ubuntu20.04
           - ubuntu18.04
@@ -60,8 +62,8 @@ jobs:
           - el7
           - el8
 
+    container: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }} 
+
     steps:
-    - uses: actions/checkout@v1
-    - run: |
-        IMAGE=ghcr.io/emqx/emqx-builder/5.0-15:${{ matrix.elixir }}-${{ matrix.erl_otp }}-${{ matrix.os }}
-        docker run --rm -i -v ${GITHUB_WORKSPACE}:/wd --workdir /wd $IMAGE bash -euc './rebar3 eunit'
+    - uses: actions/checkout@v3
+    - run: rebar3 eunit

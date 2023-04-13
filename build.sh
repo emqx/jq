@@ -13,7 +13,15 @@ if [ "${BUILD_RELEASE:-}" != 1 ] && [ -n "$PKGNAME" ]; then
     fi
 fi
 
-make -C c_src
+# default: 4 concurrent jobs
+JOBS=4
+if [ "$(uname -s)" = 'Darwin' ]; then
+    JOBS="$(sysctl -n hw.ncpu)"
+else
+    JOBS="$(nproc)"
+fi
+
+make -j "$JOBS" -C c_src
 
 if [ "${BUILD_RELEASE:-}" = 1 ]; then
     if [ -z "$PKGNAME" ]; then

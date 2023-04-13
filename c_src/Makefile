@@ -167,9 +167,9 @@ $(LIBJQ_NAME): $(JQSRC)
 	export LDFLAGS="$(MEMSAN_FLAGS)" && \
 	autoreconf -fi && \
 	./configure --with-oniguruma=builtin --disable-maintainer-mode --prefix=$(LIBJQ_PREFIX) && \
-	make -C modules/oniguruma/ && \
-	make src/builtin.inc && \
-	make libjq.la) && \
+	$(MAKE) -C modules/oniguruma/ && \
+	$(MAKE) src/builtin.inc && \
+	$(MAKE) libjq.la) && \
 	(mkdir $(EXT_LIBS) || true) && \
 	cp $(JQSRC_DIR)/.libs/libjq.* $(EXT_LIBS)/ && \
 	cp $(JQSRC_DIR)/modules/oniguruma/src/.libs/libonig.* $(EXT_LIBS)/

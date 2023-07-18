@@ -39,7 +39,7 @@ jobs:
       - name: build release
         run: |
           . $HOME/.kerl/${{ matrix.otp }}/activate
-          env BUILD_RELEASE=1 ./build.sh
+          ./build.sh
 
       - uses: actions/upload-artifact@v3
         with:
@@ -92,7 +92,7 @@ jobs:
       - name: build release
         run: |
           IMAGE=ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
-          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} -e BUILD_RELEASE=1 $IMAGE bash -euc './build.sh'
+          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} $IMAGE bash -euc './build.sh'
 
       - uses: actions/upload-artifact@v3
         with:

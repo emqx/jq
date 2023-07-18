@@ -94,7 +94,8 @@ jobs:
       - name: build release
         if: matrix.os == 'amzn2'
         run: |
-          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} $IMAGE bash -euc 'alternatives --set python /usr/bin/python2 && yum install -y libtool && ./build.sh'
+          docker build --platform=linux/${{ matrix.arch }} --build-arg FROM=$IMAGE -t emqx-builder:amzn2 -f .ci/Dockerfile.amzn2 .
+          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} emqx-builder:amzn2 bash -euc './build.sh'
 
       - name: build release
         if: matrix.os != 'amzn2'

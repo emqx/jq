@@ -24,7 +24,7 @@ EXT_LIBS := ext_libs
 ERL_PORT_PROGRAM := ../priv/erlang_jq_port
 ifeq ($(UNAME_SYS), Darwin)
 	LIBJQ := libjq.1.dylib
-	LIBONIG := libonig.4.dylib
+	LIBONIG := libonig.5.dylib
 else
 	LIBJQ := libjq.so
 	LIBONIG := libonig.so

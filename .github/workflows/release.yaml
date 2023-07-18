@@ -77,6 +77,8 @@ jobs:
           - el9
           - alpine3.15.1
     runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v3
@@ -90,8 +92,14 @@ jobs:
           platforms: ${{ matrix.arch }}
 
       - name: build release
+        if: matrix.os == 'amzn2'
         run: |
-          IMAGE=ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+          docker build --platform=linux/${{ matrix.arch }} --build-arg FROM=$IMAGE -t emqx-builder:amzn2 -f .ci/Dockerfile.amzn2 .
+          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} -e BUILD_RELEASE=1 emqx-builder:amzn2 bash -euc './build.sh'
+
+      - name: build release
+        if: matrix.os != 'amzn2'
+        run: |
           docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} -e BUILD_RELEASE=1 $IMAGE bash -euc './build.sh'
 
       - uses: actions/upload-artifact@v3

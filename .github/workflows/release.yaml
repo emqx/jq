@@ -77,6 +77,8 @@ jobs:
           - el9
           - alpine3.15.1
     runs-on: ubuntu-latest
+    env:
+      IMAGE: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v3
@@ -90,8 +92,13 @@ jobs:
           platforms: ${{ matrix.arch }}
 
       - name: build release
+        if: matrix.os == 'amzn2'
         run: |
-          IMAGE=ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }}
+          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} $IMAGE bash -euc 'alternatives --set python /usr/bin/python2 && yum install -y libtool && ./build.sh'
+
+      - name: build release
+        if: matrix.os != 'amzn2'
+        run: |
           docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} $IMAGE bash -euc './build.sh'
 
       - uses: actions/upload-artifact@v3

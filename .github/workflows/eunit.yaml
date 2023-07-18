@@ -10,73 +10,42 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - macos-11
-          - macos-12
         otp:
-          - 24
-          - 25
-        rebar3:
-          - 3.19.0
+          - 25.3.2-1
+        os:
+          - macos-12-arm64
     runs-on: ${{ matrix.os }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
         with:
           submodules: recursive
-      - name: Configure Homebrew cache
-        uses: actions/cache@v3
+      - uses: ./.github/actions/macos-erlang
         with:
-          path: |
-            ~/Library/Caches/Homebrew/
-            ~/Library/Caches/Homebrew/downloads/
-          key: brew-${{ matrix.os }}-${{ matrix.otp  }}
-      - name: prepare
-        run: |
-          # See https://github.com/actions/setup-python/issues/577
-          # brew update
-          brew install erlang@${{ matrix.otp }}
-          brew install automake
-          brew install bison
-          echo "/usr/local/opt/bison/bin" >> $GITHUB_PATH
-          echo "/usr/local/opt/erlang@${{ matrix.otp }}/bin" >> $GITHUB_PATH
-      - name: install rebar3
-        run: |
-          curl -fsSL -o rebar3 https://github.com/erlang/rebar3/releases/download/${{ matrix.rebar3 }}/rebar3
-          chmod +x rebar3
-      - name: run tests
-        run: ./rebar3 eunit
+          otp: ${{ matrix.otp }}
+          os: ${{ matrix.os }}
+      - run: |
+          . $HOME/.kerl/${{ matrix.otp }}/activate
+          ./build.sh
+          rebar3 eunit
 
   linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-22.04
 
     strategy:
       fail-fast: false
       matrix:
         builder:
-          - 5.0-26
+          - 5.1-3
         otp:
-          - 24.3.4.2-1
-          - 25.1.2-2
+          - 25.3.2-1
         elixir:
-          - 1.13.4
-        rebar3:
-          - 3.19.0
+          - 1.14.5
         os:
-          - ubuntu20.04
-          - ubuntu18.04
-          - ubuntu16.04
-          - debian10
-          - debian9
-          - el7
-          - el8
+          - ubuntu22.04
 
     container: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }} 
 
     steps:
-    - uses: actions/checkout@v3
-    - name: install rebar3
-      run: |
-        curl -fsSL -o rebar3 https://github.com/erlang/rebar3/releases/download/${{ matrix.rebar3 }}/rebar3
-        chmod +x rebar3
-    - run: ./rebar3 eunit
+      - uses: actions/checkout@v3
+      - run: ./build.sh
+      - run: rebar3 eunit

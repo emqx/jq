@@ -13,7 +13,7 @@ NIF_MODULE := jq_nif
 JQURL := https://github.com/emqx/jqc.git
 JQSRC_DIR := libs/jqc
 JQSRC := $(JQSRC_DIR)/src/jv.c
-JQSRC_VERSION := 73c51aa79b67b99c575ef8923aa0c03cd87a7ac1
+JQSRC_VERSION := 2425ccaaf1e85f63cac694f783ad3753219e2132
 RDSURL := https://github.com/emqx/c_reusable_data_structures.git
 RDSSRC_DIR := libs/c_reusable_data_structures
 RDSSRC := $(RDSSRC_DIR)/Makefile
@@ -24,7 +24,7 @@ EXT_LIBS := ext_libs
 ERL_PORT_PROGRAM := ../priv/erlang_jq_port
 ifeq ($(UNAME_SYS), Darwin)
 	LIBJQ := libjq.1.dylib
-	LIBONIG := libonig.4.dylib
+	LIBONIG := libonig.5.dylib
 else
 	LIBJQ := libjq.so
 	LIBONIG := libonig.so

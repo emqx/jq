@@ -25,6 +25,7 @@ jobs:
           os: ${{ matrix.os }}
       - run: |
           . $HOME/.kerl/${{ matrix.otp }}/activate
+          ./build.sh
           rebar3 eunit
 
   linux:
@@ -46,4 +47,5 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
+      - run: ./build.sh
       - run: rebar3 eunit

@@ -98,13 +98,19 @@ get_filter_program_lru_cache_max_size() ->
     end,
     do_op_ensure_started(Op).
 
+set_filter_program_lru_cache_max_size(PortServer, NewSize) ->
+    gen_server:call(PortServer,
+                    {set_filter_program_lru_cache_max_size, NewSize},
+                    infinity).
+
 set_filter_program_lru_cache_max_size(NewSize)
   when is_integer(NewSize), NewSize >= 0, NewSize < 1073741824 ->
     Op =
     fun() ->
-            gen_server:call(port_server(),
-                            {set_filter_program_lru_cache_max_size, NewSize},
-                            infinity)
+            Expect = lists:duplicate(jq_port:nr_of_jq_port_servers(), ok),
+            Expect = [set_filter_program_lru_cache_max_size(port_server_by_id(Id), NewSize) ||
+                      Id <- lists:seq(0, jq_port:nr_of_jq_port_servers() - 1)],
+            ok
     end,
     do_op_ensure_started(Op).
 
@@ -137,9 +143,8 @@ remove_from_lookup_table(Id) ->
 
 init(Id) ->
     process_flag(trap_exit, true),
-    Port = start_port_program(),
     State = #{
-      port => Port,
+      port => port_not_started,
       id => Id,
       processed_json_calls => 0,
       restart_period => application:get_env(jq, jq_port_restart_period, 1000000)
@@ -198,6 +203,8 @@ is_port_alive(Port) ->
             error({bad_ping_response, Other})
     end.
 
+kill_port(port_not_started) ->
+    ok;
 kill_port(Port) ->
     Port ! {self(), {command, <<"exit\0">>}},
     erlang:port_close(Port),
@@ -247,7 +254,7 @@ misbehaving_port_program(State, ErrorClass, Reason) ->
         end,
     OldPort = state_port(State), 
     kill_port(OldPort),
-    NewPort = start_port_program(),
+    NewPort = port_not_started, %% will be started by the next call
     NewState = State#{port => NewPort},
     {reply, Ret, NewState}.
 
@@ -273,12 +280,45 @@ new_state_after_process_json(State) ->
         0 -> 
             OldPort = state_port(State),
             kill_port(OldPort),
-            NewPort = start_port_program(),
+            NewPort = port_not_started,
             State#{port => NewPort, processed_json_calls => NrOfCalls + 1};
         _ ->
             State#{processed_json_calls => NrOfCalls + 1}
     end.
 
+processed_json_calls_after_call({jq_process_json, _, _, _} = _Call,
+                                #{processed_json_calls := CallCnt} = _State) ->
+    CallCnt + 1;
+processed_json_calls_after_call(_Call, #{processed_json_calls := CallCnt}) ->
+    CallCnt.
+
+jq_port_auto_turn_off_time_ms() ->
+    application:get_env(jq,
+                        jq_port_auto_turn_off_time_seconds,
+                        300) * 1000.
+
+maybe_send_idle_check_message(Port, NrOfProcessJSONCalls) ->
+    Timeout = jq_port_auto_turn_off_time_ms(),
+    case Timeout of
+        0 -> ok;
+        _ ->
+            TimeoutMessage = {turn_off_port,
+                              #{port => Port,
+                                processed_json_calls_on_start => NrOfProcessJSONCalls}},
+            {ok, _} = timer:send_after(Timeout, TimeoutMessage)
+    end.
+
+handle_call(Call, From, #{port := port_not_started} = State) ->
+    NewPort = start_port_program(),
+    StateWithPort = State#{port => NewPort},
+    %% Configure the jq port server once it is up and running
+    CacheMaxSize =
+        application:get_env(jq, jq_filter_program_lru_cache_max_size, 500),
+    {reply, ok, NewState} = handle_call({set_filter_program_lru_cache_max_size, CacheMaxSize}, From, StateWithPort),
+    %% Set a timer to turn off the port after a while if idle
+    maybe_send_idle_check_message(NewPort, processed_json_calls_after_call(Call, NewState)),
+    %% Do the original call with the updated state
+    handle_call(Call, From, NewState);
 handle_call({jq_process_json, FilterProgram, JSONText, TimeoutMs}, _From, State) ->
     Port = state_port(State),
     try
@@ -353,12 +393,29 @@ terminate(_Reason, State) ->
     remove_from_lookup_table({?MODULE, Id}),
     ok.
     
+handle_info({turn_off_port, #{port := PortToTurnOff,
+                              processed_json_calls_on_start := NrOfCallsOnStart}},
+            #{port := StatePort,
+              processed_json_calls := NrOfCallsNow} = State)
+  when PortToTurnOff =:= StatePort,
+       NrOfCallsOnStart =:= NrOfCallsNow ->
+    %% Port is idle, stop it, it will be started on next request
+    kill_port(PortToTurnOff),
+    {noreply, State#{port => port_not_started}};
+handle_info({turn_off_port, #{port := PortToTurnOff}},
+            #{port := StatePort,
+              processed_json_calls := NrOfCallsNow} = State)
+  when PortToTurnOff =:= StatePort ->
+    %% Port is not idle enough to be turned off, so we set a new timer
+    maybe_send_idle_check_message(StatePort, NrOfCallsNow),
+    {noreply, State};
+handle_info({turn_off_port, _}, State)  ->
+    %% Flush message for old port
+    {noreply, State};
 handle_info({'EXIT', Port, Reason}, #{port := Port} = State) ->
-    logger:error(io_lib:format("jq port program has died unexpectedly for reason ~p (state = ~p) \nTrying to restart...",
+    logger:error(io_lib:format("jq port program has died unexpectedly for reason ~p (state = ~p) \nTrying to restart on next request...",
                                [Reason, State])),
-    %% Let us try to start a new port
-    NewPort = start_port_program(),
-    {noreply, State#{port => NewPort}};
+    {noreply, State#{port => port_not_started}};
 handle_info({'EXIT', Port, _Reason}, State) when is_port(Port) ->
     %% Flush message from old port 
     {noreply, State};
@@ -374,7 +431,7 @@ handle_info(UnknownMessage, State) ->
 code_change(_OldVsn, State, _Extra) ->
     OldPort = state_port(State),
     kill_port(OldPort),
-    NewPort = start_port_program(),
+    NewPort = port_not_started, %% Will be started on next request
     NewState = State#{port => NewPort},
     {ok, NewState}.
 

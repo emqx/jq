@@ -312,6 +312,29 @@ concurrent_queries_t_() ->
 concurrent_queries_test_() -> wrap_setup_cleanup(concurrent_queries_t_()).
 
 -ifndef(TEST_ONLY_NIF).
+
+port_program_turn_off_automatically_test_() ->
+    {timeout, 10,
+     fun() ->
+             %% This test tries to trigger relevant code paths, but
+             %% at the time off writing, one have to check manually
+             %% that the right code is triggered.
+             %% TODO: Use snabbkaffe to check that the right code is triggered
+             jq:set_implementation_module(jq_port),
+             application:set_env(jq, jq_port_auto_turn_off_time_seconds, 1),
+             {ok, [<<"42">>]} = jq:process_json(<<"42">>, <<"42">>),
+             timer:sleep(1100),
+             %% should be off now
+             {ok, [<<"42">>]} = jq:process_json(<<"42">>, <<"42">>),
+             {ok, [<<"42">>]} = jq:process_json(<<"42">>, <<"42">>),
+             timer:sleep(1100),
+             %% Should still be on now
+             {ok, [<<"42">>]} = jq:process_json(<<"42">>, <<"42">>),
+             ok
+     end}.
+
+
+
 port_program_valgrind_test_() ->
     {timeout, 30,
      fun() ->

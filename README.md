@@ -68,10 +68,16 @@ application is loaded (the jq Erlang application is loaded automatically when
 * `jq_port_restart_period` (default value = 1000000) (only relevant for the
   `jq_port` option) - Use this option to set how many `jq:process_json/2` calls
   a port program can process before it is restarted. This is a safety option
-  that can be handy if it turn out that the jq port program has memory leaks.
+  that can be handy if it turns out that the jq port program has memory leaks.
   As far as we know the port program does not have any memory leaks but it is
   possible that it is leaky for inputs that we have not tested (please report a
   bug if you find any leaks).
+* `jq_port_auto_turn_off_time_seconds` (default value = 300) (only relevant for
+  the `jq_port` option) - Use this option to set how long time a port program
+  can be idle before it can be turned off. The port program will be automatically
+  turned on again when it is needed so this feature should be invisible from the
+  point of view of the user and is only meant to save resources. If this option
+  is set to 0 then the port programs will never be turned off automatically.
 
 ## Test with address sanitizer
   

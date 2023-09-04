@@ -107,7 +107,7 @@ set_filter_program_lru_cache_max_size(NewSize)
   when is_integer(NewSize), NewSize >= 0, NewSize < 1073741824 ->
     Op =
     fun() ->
-            Expect = [ok || _ <- lists:seq(0, jq_port:nr_of_jq_port_servers() - 1)],
+            Expect = lists:duplicate(jq_port:nr_of_jq_port_servers(), ok),
             Expect = [set_filter_program_lru_cache_max_size(port_server_by_id(Id), NewSize) ||
                       Id <- lists:seq(0, jq_port:nr_of_jq_port_servers() - 1)],
             ok

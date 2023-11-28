@@ -298,7 +298,7 @@ concurrent_queries_t_() ->
      fun() ->
              NrOfScheds = erlang:system_info(schedulers),
              Qubes = qubes(NrOfScheds),
-             erlang:display_nl(),
+             io:format("~n", []),
              [(ok = concurrent_queries_test(NrOfTestProcess, true, 500, 5000))
               || NrOfTestProcess <- Qubes],
              ok = concurrent_queries_test(NrOfScheds, false, 0, 100),

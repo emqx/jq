@@ -118,3 +118,14 @@ new version of this library.
 [4]: https://valgrind.org/
 [5]: https://stedolan.github.io/jq/manual/v1.6
 [6]: https://www.erlang.org/doc/man/erlang.html#load_nif-2
+
+## Mac OS
+
+If you faile to build on Apple Silicon (ARM64) with below error:
+
+```
+Undefined symbols for architecture arm64:
+   "_enif_alloc", referenced from:
+```
+
+Try clear the LDFLAGS variable with `unset LDFLAGS`.

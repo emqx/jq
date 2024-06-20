@@ -10,25 +10,8 @@ JQERLMODSRC := $(BASEDIR)/src/jq_nif.erl
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
 NIF_MODULE := jq_nif
-
 JQSRC_DIR := libs/jqc
-JQSRC := $(JQSRC_DIR)/src/jv.c
-JQSRC_URL := https://github.com/emqx/jqc.git
-JQSRC_VERSION := 2425ccaaf1e85f63cac694f783ad3753219e2132
-
 RDSSRC_DIR := libs/c_reusable_data_structures
-RDSSRC := $(RDSSRC_DIR)/Makefile
-RDSSRC_URL := https://github.com/emqx/c_reusable_data_structures.git
-RDSSRC_VERSION := 77c7a96416065a839417e5078fce9ba9a14982dc
-
-define fetch_source
-git -C "$($(1)_DIR)" fetch "$($(1)_URL)" $($(1)_VERSION)
-git -C "$($(1)_DIR)" checkout $($(1)_VERSION) || ( \
-    echo "Failed to check out $($(1)_DIR) commit" && \
-    rm -r "$($(1)_DIR)" && \
-    false )
-endef
-
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
 LIBJQ_PREFIX := /usr/local
 EXT_LIBS := ext_libs
@@ -125,7 +108,7 @@ all: $(C_SRC_OUTPUT)
 ifeq ($(JQ_MEMSAN_DEBUG), 1)
 $(C_SRC_OUTPUT): $(OBJECTS) port_nif_common.h
 else
-$(C_SRC_OUTPUT): $(RDSSRC) $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
+$(C_SRC_OUTPUT): $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
 endif
 	@mkdir -p $(BASEDIR)/priv/
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
@@ -144,22 +127,10 @@ $(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
 	@mkdir -p $(BASEDIR)/priv/
 	$(CC) $(PORT_OBJECTS) -L $(EXT_LIBS) $(LD_JQLIBS) -lm -pthread -o $(ERL_PORT_PROGRAM)
 
-%.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC) $(PORT_SOURCES)
+%.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(PORT_SOURCES)
 	$(COMPILE_C) $(OUTPUT_OPTION) $<
 
-%/.git:
-	git init "$*"
-
-$(JQSRC): $(JQSRC_DIR)/.git
-	$(call fetch_source,JQSRC)
-	touch "$@"
-
-$(RDSSRC): $(RDSSRC_DIR)/.git
-	$(call fetch_source,RDSSRC)
-	touch "$@"
-
-$(LIBJQ_NAME): $(JQSRC)
-	#ls -lart .libs/ modules/oniguruma/src/.libs/
+$(LIBJQ_NAME):
 	(cd $(JQSRC_DIR) && \
 	git submodule update --init && \
 	export CC="$(CC)" && \
@@ -179,7 +150,4 @@ clean:
 	@rm -f $(PORT_OBJECTS)
 	@rm -f $(PRIV_DIR)/*
 	@rm -rf $(EXT_LIBS)
-	@rm -rf $(JQSRC_DIR)
-	@rm -rf $(RDSSRC_DIR)
 	@rm -f $(ERL_PORT_PROGRAM)
-

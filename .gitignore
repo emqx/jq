@@ -20,12 +20,9 @@ rebar3.crashdump
 *~
 c_src/ext_libs
 c_src/jqc
-c_src/libs
 priv/*.dylib
 a.out
 c_src/ext_libs/
-c_src/libs/c_reusable_data_structures/
-c_src/libs/jqc/
 priv/erlang_jq_port
 test/port_program_stderr.txt
 test/port_program_stdout.bin

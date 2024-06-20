@@ -14,7 +14,7 @@ runs:
     - name: prepare
       shell: bash
       run: |
-        brew install curl zip unzip gnu-sed automake bison kerl wget
+        brew install curl zip unzip gnu-sed automake libtool bison kerl wget
         echo "$(brew --prefix bison)/bin" >> $GITHUB_PATH
         git config --global credential.helper store
 

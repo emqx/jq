@@ -118,9 +118,8 @@ jobs:
           name: packages
           path: packages
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          name: Erlang jq NIF ${{ github.ref_name }} Released
+          name: Erlang jq NIF ${{ github.event.inputs.branch_or_tag || github.ref_name }} Released
+          tag_name: ${{ github.event.inputs.branch_or_tag || github.ref_name }}
           files: "packages/*"
-          draft: false
-          prerelease: false

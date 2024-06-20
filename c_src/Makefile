@@ -141,8 +141,8 @@ check_jqc_version:
 
 
 $(JQSRC):
-	git clone -b jq-1.6-emqx --single-branch "$(JQURL)" "$(JQSRC_DIR)"
-	((cd "$(JQSRC_DIR)" && git checkout $(JQSRC_VERSION)) || \
+	git clone --depth 1 -b EMQX_1.6.0-emqx --single-branch "$(JQURL)" "$(JQSRC_DIR)"
+	( ( cd "$(JQSRC_DIR)" && [ `git rev-parse --verify HEAD` = '$(JQSRC_VERSION)' ] ) || \
 	     (echo "Failed to check out jq commit" && \
 	      rm -r "$(JQSRC_DIR)" && \
 	      false))
@@ -152,8 +152,8 @@ check_rds_version:
 	  [ `git rev-parse --verify HEAD` = '$(RDSSRC_VERSION)' ] || (cd .. && rm -rf c_reusable_data_structures))
 
 $(RDSSRC):
-	git clone -b master --single-branch "$(RDSURL)" "$(RDSSRC_DIR)"
-	((cd "$(RDSSRC_DIR)" && git checkout $(RDSSRC_VERSION)) || \
+	git clone --depth 1 -b EMQX_1.0.0 --single-branch "$(RDSURL)" "$(RDSSRC_DIR)"
+	( ( cd "$(RDSSRC_DIR)" && [ `git rev-parse --verify HEAD` = '$(RDSSRC_VERSION)' ] ) || \
 	     (echo "Failed to check out c_reusable_data_structures commit" && \
 	      rm -r "$(RDSSRC_DIR)" && \
 	      false))

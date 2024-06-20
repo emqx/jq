@@ -44,7 +44,7 @@ jobs:
       - name: build release
         run: |
           . $HOME/.kerl/${{ matrix.otp }}/activate
-          env BUILD_RELEASE=1 ./build.sh
+          env BUILD_RELEASE=1 CI_RELEASE_VERSION=${{ github.event.inputs.release_as }} ./build.sh
 
       - uses: actions/upload-artifact@v3
         with:
@@ -94,12 +94,12 @@ jobs:
         if: matrix.os == 'amzn2'
         run: |
           docker build --platform=linux/${{ matrix.arch }} --build-arg FROM=$IMAGE -t emqx-builder:amzn2 -f .ci/Dockerfile.amzn2 .
-          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} -e BUILD_RELEASE=1 emqx-builder:amzn2 bash -euc './build.sh'
+          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} -e BUILD_RELEASE=1 -e CI_RELEASE_VERSION=${{ github.event.inputs.release_as }} emqx-builder:amzn2 bash -euc './build.sh'
 
       - name: build release
         if: matrix.os != 'amzn2'
         run: |
-          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} -e BUILD_RELEASE=1 $IMAGE bash -euc './build.sh'
+          docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} -e BUILD_RELEASE=1 -e CI_RELEASE_VERSION=${{ github.event.inputs.release_as }} $IMAGE bash -euc './build.sh'
 
       - uses: actions/upload-artifact@v3
         with:

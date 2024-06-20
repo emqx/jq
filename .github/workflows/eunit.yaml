@@ -13,7 +13,7 @@ jobs:
         otp:
           - 26.1.2-1
         os:
-          - macos-12-arm64
+          - macos-14
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -35,13 +35,13 @@ jobs:
       fail-fast: false
       matrix:
         builder:
-          - 5.2-7
+          - 5.3-8
         otp:
-          - 26.1.2-1
+          - 26.2.5-2
         elixir:
           - 1.15.7
         os:
-          - ubuntu22.04
+          - ubuntu24.04
 
     container: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }} 
 

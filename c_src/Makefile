@@ -10,14 +10,8 @@ JQERLMODSRC := $(BASEDIR)/src/jq_nif.erl
 PROJECT ?= $(notdir $(BASEDIR))
 PROJECT := $(strip $(PROJECT))
 NIF_MODULE := jq_nif
-JQURL := https://github.com/emqx/jqc.git
 JQSRC_DIR := libs/jqc
-JQSRC := $(JQSRC_DIR)/src/jv.c
-JQSRC_VERSION := 2425ccaaf1e85f63cac694f783ad3753219e2132
-RDSURL := https://github.com/emqx/c_reusable_data_structures.git
 RDSSRC_DIR := libs/c_reusable_data_structures
-RDSSRC := $(RDSSRC_DIR)/Makefile
-RDSSRC_VERSION := 77c7a96416065a839417e5078fce9ba9a14982dc
 LIBJQ_DIR ?= $(JQSRC_DIR)/.libs
 LIBJQ_PREFIX := /usr/local
 EXT_LIBS := ext_libs
@@ -106,14 +100,15 @@ PORT_OBJECTS = $(addsuffix .o, $(basename $(PORT_SOURCES)))
 COMPILE_C = $(c_verbose) $(CC) $(CFLAGS) $(CPPFLAGS) -c
 COMPILE_CPP = $(cpp_verbose) $(CXX) $(CXXFLAGS) $(CPPFLAGS) -c
 
-.PHONY: clean check_jqc_version all check_rds_version
+.SUFFIXES:
+.PHONY: clean all
 
-all: check_jqc_version check_rds_version $(C_SRC_OUTPUT)
+all: $(C_SRC_OUTPUT)
 
 ifeq ($(JQ_MEMSAN_DEBUG), 1)
 $(C_SRC_OUTPUT): $(OBJECTS) port_nif_common.h
 else
-$(C_SRC_OUTPUT): $(RDSSRC) $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
+$(C_SRC_OUTPUT): $(OBJECTS) $(ERL_PORT_PROGRAM) port_nif_common.h
 endif
 	@mkdir -p $(BASEDIR)/priv/
 	$(link_verbose) $(CC) $(OBJECTS) $(LDFLAGS) $(LDLIBS) -o $(C_SRC_OUTPUT)
@@ -132,34 +127,10 @@ $(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
 	@mkdir -p $(BASEDIR)/priv/
 	$(CC) $(PORT_OBJECTS) -L $(EXT_LIBS) $(LD_JQLIBS) -lm -pthread -o $(ERL_PORT_PROGRAM)
 
-%.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(RDSSRC) $(PORT_SOURCES)
+%.o: %.c $(LIBJQ_NAME) $(JQERLMODSRC) $(PORT_SOURCES)
 	$(COMPILE_C) $(OUTPUT_OPTION) $<
 
-check_jqc_version:
-	( cd libs/jqc && \
-	  [ `git rev-parse --verify HEAD` = '$(JQSRC_VERSION)' ] || (cd .. && rm -rf jqc))
-
-
-$(JQSRC):
-	git clone -b jq-1.6-emqx --single-branch "$(JQURL)" "$(JQSRC_DIR)"
-	((cd "$(JQSRC_DIR)" && git checkout $(JQSRC_VERSION)) || \
-	     (echo "Failed to check out jq commit" && \
-	      rm -r "$(JQSRC_DIR)" && \
-	      false))
-
-check_rds_version:
-	( cd libs/c_reusable_data_structures && \
-	  [ `git rev-parse --verify HEAD` = '$(RDSSRC_VERSION)' ] || (cd .. && rm -rf c_reusable_data_structures))
-
-$(RDSSRC):
-	git clone -b master --single-branch "$(RDSURL)" "$(RDSSRC_DIR)"
-	((cd "$(RDSSRC_DIR)" && git checkout $(RDSSRC_VERSION)) || \
-	     (echo "Failed to check out c_reusable_data_structures commit" && \
-	      rm -r "$(RDSSRC_DIR)" && \
-	      false))
-
-$(LIBJQ_NAME): $(JQSRC)
-	#ls -lart .libs/ modules/oniguruma/src/.libs/
+$(LIBJQ_NAME):
 	(cd $(JQSRC_DIR) && \
 	git submodule update --init && \
 	export CC="$(CC)" && \
@@ -173,12 +144,10 @@ $(LIBJQ_NAME): $(JQSRC)
 	(mkdir $(EXT_LIBS) || true) && \
 	cp $(JQSRC_DIR)/.libs/libjq.* $(EXT_LIBS)/ && \
 	cp $(JQSRC_DIR)/modules/oniguruma/src/.libs/libonig.* $(EXT_LIBS)/
+
 clean:
 	@rm -f $(OBJECTS)
 	@rm -f $(PORT_OBJECTS)
 	@rm -f $(PRIV_DIR)/*
 	@rm -rf $(EXT_LIBS)
-	@rm -rf $(JQSRC_DIR)
-	@rm -rf $(RDSSRC_DIR)
 	@rm -f $(ERL_PORT_PROGRAM)
-

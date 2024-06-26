@@ -82,6 +82,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
         with:
+          submodules: recursive
           fetch-depth: 0
           ref: ${{ github.event.inputs.build_from }} # when input is not given, the event tag is used
 

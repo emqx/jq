@@ -40,24 +40,20 @@ jobs:
       - run: rebar3 eunit
 
   linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
         builder:
-          - 5.3-8
-        otp:
-          - 26.2.5-2
-        elixir:
-          - 1.15.7
+          - 5.4-3:1.17.3-27.2-1
         os:
           - ubuntu24.04
 
-    container: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }} 
+    container: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}-${{ matrix.os }} 
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - run: git config --global --add safe.directory $GITHUB_WORKSPACE

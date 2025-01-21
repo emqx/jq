@@ -23,27 +23,37 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-          - 25.3.2-2
-          - 26.1.2-1
+          - "26"
+          - "27"
+        rebar3:
+          - "3.22.0"
         os:
-          - macos-13
           - macos-14
+          - macos-15
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
           ref: ${{ github.event.inputs.build_from }} # when input is not given, the event tag is used
 
-      - uses: ./.github/actions/macos-erlang
-        with:
-          otp: ${{ matrix.otp }}
-          os: ${{ matrix.os }}
+      - name: install erlang & build tooling
+        env:
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: |
+          brew update
+          brew install automake libtool
+          brew install erlang@${{ matrix.otp }}
+          echo "$(brew --prefix erlang@${{ matrix.otp }})/bin" >> $GITHUB_PATH
+
+      - name: install rebar3
+        run: |
+          wget https://github.com/erlang/rebar3/releases/download/${{ matrix.rebar3 }}/rebar3 && chmod +x rebar3
+          sudo mv rebar3 /usr/local/bin/ && sudo chmod +x /usr/local/bin/rebar3
 
       - name: build release
         run: |
-          . $HOME/.kerl/${{ matrix.otp }}/activate
           env BUILD_RELEASE=1 CI_RELEASE_VERSION=${{ github.event.inputs.release_as }} ./build.sh
 
       - uses: actions/upload-artifact@v3
@@ -58,8 +68,8 @@ jobs:
       fail-fast: false
       matrix:
         builder:
-          - 5.3-8:1.15.7-25.3.2-2
-          - 5.3-8:1.15.7-26.2.5-2
+          - 5.4-4:1.15.7-26.2.5.2-3
+          - 5.4-4:1.17.3-27.2-2
         arch:
           - amd64
           - arm64
@@ -75,12 +85,13 @@ jobs:
           - el8
           - el9
           - alpine3.15.1
+
     runs-on: ubuntu-latest
     env:
       IMAGE: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}-${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 0
@@ -116,7 +127,7 @@ jobs:
       - linux
     if: startsWith(github.ref, 'refs/tags/') || inputs.release_as
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/download-artifact@v4
         with:
           name: packages
           path: packages

@@ -11,42 +11,49 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-          - 26.1.2-1
+          - '27'
+        rebar3:
+          - "3.22.0"
         os:
-          - macos-14
+          - macos-15
+
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v3
+      - name: install erlang & build tooling
+        env:
+          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
+        run: |
+          brew update
+          brew install automake libtool
+          brew install erlang@${{ matrix.otp }}
+          echo "$(brew --prefix erlang@${{ matrix.otp }})/bin" >> $GITHUB_PATH
+
+      - name: install rebar3
+        run: |
+          wget https://github.com/erlang/rebar3/releases/download/${{ matrix.rebar3 }}/rebar3 && chmod +x rebar3
+          sudo mv rebar3 /usr/local/bin/ && sudo chmod +x /usr/local/bin/rebar3
+
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - uses: ./.github/actions/macos-erlang
-        with:
-          otp: ${{ matrix.otp }}
-          os: ${{ matrix.os }}
-      - run: |
-          . $HOME/.kerl/${{ matrix.otp }}/activate
-          ./build.sh
-          rebar3 eunit
+      - run: ./build.sh
+      - run: rebar3 eunit
 
   linux:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     strategy:
       fail-fast: false
       matrix:
         builder:
-          - 5.3-8
-        otp:
-          - 26.2.5-2
-        elixir:
-          - 1.15.7
+          - 5.4-4:1.17.3-27.2-2
         os:
           - ubuntu24.04
 
-    container: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}:${{ matrix.elixir }}-${{ matrix.otp }}-${{ matrix.os }} 
+    container: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}-${{ matrix.os }} 
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
       - run: git config --global --add safe.directory $GITHUB_WORKSPACE

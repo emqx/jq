@@ -58,7 +58,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: packages
+          name: packages-${{ matrix.os }}-${{ matrix.otp }}
           path: |
             _packages/*.tar.gz
             _packages/*.tar.gz.sha256
@@ -68,8 +68,10 @@ jobs:
       fail-fast: false
       matrix:
         builder:
-          - 5.4-4:1.15.7-26.2.5.2-3
-          - 5.4-4:1.17.3-27.2-2
+          - vsn: 5.4-4:1.15.7-26.2.5.2-3
+            otp: 26.2.5.2-3
+          - vsn: 5.4-4:1.17.3-27.2-2
+            otp: 27.2-2
         arch:
           - amd64
           - arm64
@@ -88,7 +90,7 @@ jobs:
 
     runs-on: ubuntu-latest
     env:
-      IMAGE: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}-${{ matrix.os }}
+      IMAGE: ghcr.io/emqx/emqx-builder/${{ matrix.builder.vsn }}-${{ matrix.os }}
 
     steps:
       - uses: actions/checkout@v4
@@ -115,7 +117,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: packages
+          name: packages-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.builder.otp }}
           path: |
             _packages/*.tar.gz
             _packages/*.tar.gz.sha256
@@ -129,7 +131,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: packages
+          pattern: 'packages-*'
           path: packages
           merge-multiple: true
       - name: Create Release

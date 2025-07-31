@@ -23,40 +23,34 @@ jobs:
       fail-fast: false
       matrix:
         otp:
-          - "26"
-          - "27"
+          - "26.2.5.14-1"
+          - "27.3.4.2-1"
         rebar3:
           - "3.22.0"
         os:
+          - macos-13
           - macos-14
           - macos-15
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: emqx/macos-erlang@f744c98139c0db83a10619587d4bae4fc49765a8 # v1.0.0
+        with:
+          otp-version: ${{ matrix.otp }}
+          rebar3-version: ${{ matrix.rebar3 }}
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
           fetch-depth: 0
           ref: ${{ github.event.inputs.build_from }} # when input is not given, the event tag is used
 
-      - name: install erlang & build tooling
-        env:
-          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
-        run: |
-          brew update
-          brew install automake libtool
-          brew install erlang@${{ matrix.otp }}
-          echo "$(brew --prefix erlang@${{ matrix.otp }})/bin" >> $GITHUB_PATH
-
-      - name: install rebar3
-        run: |
-          wget https://github.com/erlang/rebar3/releases/download/${{ matrix.rebar3 }}/rebar3 && chmod +x rebar3
-          sudo mv rebar3 /usr/local/bin/ && sudo chmod +x /usr/local/bin/rebar3
-
       - name: build release
-        run: |
-          env BUILD_RELEASE=1 CI_RELEASE_VERSION=${{ github.event.inputs.release_as }} ./build.sh
+        env:
+          BUILD_RELEASE: 1
+          CI_RELEASE_VERSION: ${{ github.event.inputs.release_as }}
+        run: ./build.sh
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: packages-${{ matrix.os }}-${{ matrix.otp }}
           path: |
@@ -68,10 +62,10 @@ jobs:
       fail-fast: false
       matrix:
         builder:
-          - vsn: 5.4-4:1.15.7-26.2.5.2-3
-            otp: 26.2.5.2-3
-          - vsn: 5.4-4:1.17.3-27.2-2
-            otp: 27.2-2
+          - vsn: "5.5-5:1.15.7-26.2.5.14-1"
+            otp: "26.2.5.14-1"
+          - vsn: "5.5-5:1.18.3-27.3.4.2-1"
+            otp: "27.3.4.2-1"
         arch:
           - amd64
           - arm64
@@ -84,6 +78,7 @@ jobs:
           - debian10
           - amzn2
           - amzn2023
+          - el7
           - el8
           - el9
           - alpine3.15.1
@@ -93,14 +88,14 @@ jobs:
       IMAGE: ghcr.io/emqx/emqx-builder/${{ matrix.builder.vsn }}-${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
           fetch-depth: 0
           ref: ${{ github.event.inputs.build_from }} # when input is not given, the event tag is used
 
-      - uses: docker/setup-buildx-action@v2
-      - uses: docker/setup-qemu-action@v2
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
         with:
           platforms: ${{ matrix.arch }}
 
@@ -115,7 +110,7 @@ jobs:
         run: |
           docker run -i --rm --user 1001 -v $(pwd):/wd --workdir /wd --platform=linux/${{ matrix.arch }} -e BUILD_RELEASE=1 -e CI_RELEASE_VERSION=${{ github.event.inputs.release_as }} $IMAGE bash -euc './build.sh'
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: packages-${{ matrix.os }}-${{ matrix.arch }}-${{ matrix.builder.otp }}
           path: |
@@ -129,13 +124,13 @@ jobs:
       - linux
     if: startsWith(github.ref, 'refs/tags/') || inputs.release_as
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: 'packages-*'
           path: packages
           merge-multiple: true
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
           name: Erlang jq NIF ${{ github.event.inputs.release_as || github.ref_name }} Released
           tag_name: ${{ github.event.inputs.release_as || github.ref_name }}

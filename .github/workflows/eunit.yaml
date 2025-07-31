@@ -1,17 +1,20 @@
 name: Test
 
 on:
-  - push
-  - pull_request
-  - workflow_dispatch
+  push:
+    branches:
+      - 'main'
+  pull_request:
+  workflow_dispatch:
 
 jobs:
   mac:
+    name: macOS (${{ matrix.os }} ${{ matrix.otp }})
     strategy:
       fail-fast: false
       matrix:
         otp:
-          - '27'
+          - "27.3.4.2-1"
         rebar3:
           - "3.22.0"
         os:
@@ -19,41 +22,37 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - name: install erlang & build tooling
-        env:
-          HOMEBREW_NO_INSTALLED_DEPENDENTS_CHECK: "1"
-        run: |
-          brew update
-          brew install automake libtool
-          brew install erlang@${{ matrix.otp }}
-          echo "$(brew --prefix erlang@${{ matrix.otp }})/bin" >> $GITHUB_PATH
+      - uses: emqx/macos-erlang@f744c98139c0db83a10619587d4bae4fc49765a8 # v1.0.0
+        with:
+          otp-version: ${{ matrix.otp }}
+          rebar3-version: ${{ matrix.rebar3 }}
 
-      - name: install rebar3
-        run: |
-          wget https://github.com/erlang/rebar3/releases/download/${{ matrix.rebar3 }}/rebar3 && chmod +x rebar3
-          sudo mv rebar3 /usr/local/bin/ && sudo chmod +x /usr/local/bin/rebar3
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
+
       - run: ./build.sh
       - run: rebar3 eunit
 
   linux:
-    runs-on: ubuntu-latest
-
+    name: linux (${{ matrix.os }} ${{ matrix.arch }} ${{ matrix.builder.otp }})
     strategy:
       fail-fast: false
       matrix:
-        builder:
-          - 5.4-4:1.17.3-27.2-2
         os:
           - ubuntu24.04
+        arch:
+          - amd64
+          - arm64
+        builder:
+          - vsn: "5.5-5:1.18.3-27.3.4.2-1"
+            otp: "27.3.4.2-1"
 
-    container: ghcr.io/emqx/emqx-builder/${{ matrix.builder }}-${{ matrix.os }} 
+    runs-on: ubuntu-24.04${{ matrix.arch == 'arm64' && '-arm' || '' }}
+    container: ghcr.io/emqx/emqx-builder/${{ matrix.builder.vsn }}-${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           submodules: recursive
       - run: git config --global --add safe.directory $GITHUB_WORKSPACE

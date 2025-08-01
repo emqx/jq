@@ -73,7 +73,6 @@ jobs:
           - amzn2023
           - el8
           - el9
-          - alpine3.15.1
         arch:
           - amd64
           - arm64
@@ -111,6 +110,7 @@ jobs:
   linux-old:
     # el7 does not work when using 'container' due to old nodejs version
     # same with amzn2, plus it needs even more handholding
+    # JavaScript Actions in Alpine containers are only supported on x64 Linux runners
     name: linux (${{ matrix.os }} ${{ matrix.arch }} ${{ matrix.builder.otp }})
     strategy:
       fail-fast: false
@@ -118,6 +118,7 @@ jobs:
         os:
           - amzn2
           - el7
+          - alpine3.15.1
         arch:
           - amd64
           - arm64

@@ -21,6 +21,7 @@ else
     JOBS="$(nproc)"
 fi
 
+git submodule update --init --recursive
 make -j "$JOBS" -C c_src
 
 if [ "${BUILD_RELEASE:-}" = 1 ]; then

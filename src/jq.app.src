@@ -9,7 +9,6 @@
    ]},
   {env,[]},
   {modules, [jq, jq_app, jq_port, jq_nif, jq_port_sup]},
-
   {licenses, ["Apache 2.0"]},
   {links, []}
  ]}.

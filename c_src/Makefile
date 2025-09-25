@@ -132,7 +132,7 @@ $(ERL_PORT_PROGRAM): $(PORT_OBJECTS)
 
 $(LIBJQ_NAME):
 	(cd $(JQSRC_DIR) && \
-	git submodule update --init && \
+	git submodule update --init --recursive && \
 	export CC="$(CC)" && \
 	export CFLAGS="$(EXTRA_C_FLAGS)" && \
 	export LDFLAGS="$(MEMSAN_FLAGS)" && \

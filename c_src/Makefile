@@ -134,7 +134,7 @@ $(LIBJQ_NAME):
 	(cd $(JQSRC_DIR) && \
 	git submodule update --init --recursive && \
 	export CC="$(CC)" && \
-	export CFLAGS="$(EXTRA_C_FLAGS)" && \
+	export CFLAGS="$(EXTRA_C_FLAGS) -std=gnu17" && \
 	export LDFLAGS="$(MEMSAN_FLAGS)" && \
 	autoreconf -fi && \
 	./configure --with-oniguruma=builtin --disable-maintainer-mode --prefix=$(LIBJQ_PREFIX) && \

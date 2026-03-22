@@ -24,17 +24,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-13
-            otp: "26.2.5.14-1"
-            rebar3: "3.22.0"
           - os: macos-14
             otp: "26.2.5.14-1"
             rebar3: "3.22.0"
           - os: macos-15
             otp: "26.2.5.14-1"
-            rebar3: "3.22.0"
-          - os: macos-13
-            otp: "27.3.4.2-6"
             rebar3: "3.22.0"
           - os: macos-14
             otp: "27.3.4.2-6"
@@ -42,9 +36,6 @@ jobs:
           - os: macos-15
             otp: "27.3.4.2-6"
             rebar3: "3.22.0"
-          - os: macos-13
-            otp: "28.4.1-1"
-            rebar3: "3.25.1"
           - os: macos-14
             otp: "28.4.1-1"
             rebar3: "3.25.1"

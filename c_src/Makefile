@@ -57,18 +57,21 @@ ifeq ($(UNAME_SYS), Darwin)
 	CXXFLAGS ?= -O3 -arch $(ARCH) -finline-functions -Wall
 	LDFLAGS ?= -arch $(ARCH) -undefined dynamic_lookup
 	LD_JQLIBS ?= -ljq -lonig
+	JQC_STD_FLAG ?= -std=gnu17
 else ifeq ($(UNAME_SYS), FreeBSD)
 	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 	LD_JQLIBS ?= -l:libjq.a -l:libonig.a
+	JQC_STD_FLAG ?=
 else ifeq ($(UNAME_SYS), Linux)
 	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 	LD_JQLIBS ?= -l:libjq.a -l:libonig.a
+	JQC_STD_FLAG ?=
 endif
 
 STDC_NO_THREAD := $(shell ./check_if_threads_header_exists.sh "$(CC)" "$(CFLAGS)" threads.h)
@@ -134,7 +137,7 @@ $(LIBJQ_NAME):
 	(cd $(JQSRC_DIR) && \
 	git submodule update --init --recursive && \
 	export CC="$(CC)" && \
-	export CFLAGS="$(EXTRA_C_FLAGS)" && \
+	export CFLAGS="$(EXTRA_C_FLAGS) $(JQC_STD_FLAG)" && \
 	export LDFLAGS="$(MEMSAN_FLAGS)" && \
 	autoreconf -fi && \
 	./configure --with-oniguruma=builtin --prefix=$(LIBJQ_PREFIX) && \

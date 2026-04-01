@@ -64,14 +64,14 @@ else ifeq ($(UNAME_SYS), FreeBSD)
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 	LD_JQLIBS ?= -l:libjq.a -l:libonig.a
-	JQC_STD_FLAG ?=
+	JQC_STD_FLAG ?= -std=gnu17
 else ifeq ($(UNAME_SYS), Linux)
 	CC ?= gcc
 	CFLAGS ?= $(EXTRA_C_FLAGS) -std=c11 -finline-functions -Wall -Wno-missing-prototypes -Wno-unused-function
 	CXXFLAGS ?= $(EXTRA_C_FLAGS) -finline-functions -Wall
 	LDFLAGS += -Wl,-rpath,$$ORIGIN
 	LD_JQLIBS ?= -l:libjq.a -l:libonig.a
-	JQC_STD_FLAG ?=
+	JQC_STD_FLAG ?= -std=gnu17
 endif
 
 STDC_NO_THREAD := $(shell ./check_if_threads_header_exists.sh "$(CC)" "$(CFLAGS)" threads.h)

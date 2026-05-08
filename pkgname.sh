@@ -32,7 +32,10 @@ case "$UNAMES" in
 esac
 
 ARCH="$(uname -m)"
-VSN="${CI_RELEASE_VERSION:-$(git describe --tags --exact-match | head -1)}"
+# --match 'v[0-9]*' guards against unrelated tags (e.g. an accidental
+# 'true' tag) that happen to point at the same commit and would
+# otherwise win the lex sort and produce a bogus package URL.
+VSN="${CI_RELEASE_VERSION:-$(git describe --tags --exact-match --match 'v[0-9]*' 2>/dev/null | head -1)}"
 
 if [ -z "$VSN" ]; then
     exit 0

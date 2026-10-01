@@ -16,10 +16,10 @@ jobs:
         include:
           - otp: "27.3.4.2-6"
             rebar3: "3.22.0"
-            os: macos-15
+            os: macos-26
           - otp: "28.4.1-1"
             rebar3: "3.25.1"
-            os: macos-15
+            os: macos-26
 
     runs-on: ${{ matrix.os }}
     steps:

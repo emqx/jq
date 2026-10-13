@@ -16,9 +16,32 @@ on:
           If empty, release publishing will be skipped.
         required: false
         default: ""
+      linux_os:
+        description: |
+          JSON array of Linux distros to build, for example ["el10"].
+          Build a subset to add assets for a new distro to a release that
+          already exists, without rebuilding the assets it already has.
+          Empty builds every distro.
+        required: false
+        default: ""
+      skip_mac:
+        description: |
+          Skip the macOS builds. Set this when the release already has its
+          macOS assets.
+        required: false
+        type: boolean
+        default: false
+      skip_linux_old:
+        description: |
+          Skip the amzn2, el7 and alpine3.15.1 builds. Set this when the
+          release already has those assets.
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   mac:
+    if: ${{ !inputs.skip_mac }}
     name: macOS (${{ matrix.os }} ${{ matrix.otp }})
     strategy:
       fail-fast: false
@@ -83,26 +106,22 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - ubuntu24.04
-          - ubuntu22.04
-          - ubuntu20.04
-          - debian13
-          - debian12
-          - debian11
-          - amzn2023
-          - el8
-          - el9
+        # The prebuilt file name carries the OTP major only, so one asset per
+        # (version, OTP major, distro, arch) serves every OTP patch release.
+        os: >-
+          ${{ fromJSON(github.event.inputs.linux_os || '["ubuntu24.04",
+          "ubuntu22.04", "ubuntu20.04", "debian13", "debian12", "debian11",
+          "amzn2023", "el8", "el9", "el10"]') }}
         arch:
           - amd64
           - arm64
         builder:
-          - vsn: "6.1-1:1.15.7-26.2.5.14-1"
+          - vsn: "6.2-3:1.15.7-26.2.5.14-1"
             otp: "26.2.5.14-1"
-          - vsn: "6.1-1:1.18.3-27.3.4.2-6"
-            otp: "27.3.4.2-6"
-          - vsn: "6.1-1:1.19.1-28.4.1-1"
-            otp: "28.4.1-1"
+          - vsn: "6.2-3:1.18.3-27.3.4.2-9"
+            otp: "27.3.4.2-9"
+          - vsn: "6.2-3:1.19.1-28.5.0.7-3"
+            otp: "28.5.0.7-3"
 
     runs-on: ubuntu-24.04${{ matrix.arch == 'arm64' && '-arm' || '' }}
     container: ghcr.io/emqx/emqx-builder/${{ matrix.builder.vsn }}-${{ matrix.os }}
@@ -134,6 +153,7 @@ jobs:
     # same with amzn2, plus it needs even more handholding
     # JavaScript Actions in Alpine containers are only supported on x64 Linux runners
     name: linux (${{ matrix.os }} ${{ matrix.arch }} ${{ matrix.builder.otp }})
+    if: ${{ !inputs.skip_linux_old }}
     strategy:
       fail-fast: false
       matrix:
@@ -145,12 +165,12 @@ jobs:
           - amd64
           - arm64
         builder:
-          - vsn: "6.1-1:1.15.7-26.2.5.14-1"
+          - vsn: "6.2-3:1.15.7-26.2.5.14-1"
             otp: "26.2.5.14-1"
-          - vsn: "6.1-1:1.18.3-27.3.4.2-6"
-            otp: "27.3.4.2-6"
-          - vsn: "6.1-1:1.19.1-28.4.1-1"
-            otp: "28.4.1-1"
+          - vsn: "6.2-3:1.18.3-27.3.4.2-9"
+            otp: "27.3.4.2-9"
+          - vsn: "6.2-3:1.19.1-28.5.0.7-3"
+            otp: "28.5.0.7-3"
 
     runs-on: ubuntu-24.04${{ matrix.arch == 'arm64' && '-arm' || '' }}
 
@@ -201,7 +221,15 @@ jobs:
       - mac
       - linux
       - linux-old
-    if: startsWith(github.ref, 'refs/tags/') || inputs.release_as
+    # always(), because the mac and linux-old jobs are skipped when their
+    # skip input is set, and a skipped dependency skips this job unless the
+    # condition states otherwise.
+    if: >-
+      always()
+      && needs.linux.result == 'success'
+      && needs.mac.result != 'failure' && needs.mac.result != 'cancelled'
+      && needs['linux-old'].result != 'failure' && needs['linux-old'].result != 'cancelled'
+      && (startsWith(github.ref, 'refs/tags/') || inputs.release_as)
     steps:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:

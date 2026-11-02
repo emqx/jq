@@ -48,6 +48,38 @@ empty_input_t_() ->
                      jq:process_json(<<" ">>, <<"{}">>))].
 empty_input_test_() -> wrap_setup_cleanup(empty_input_t_()).
 
+-define(ENV_CANARY, "JQ_TEST_ENV_CANARY").
+
+%% os:putenv/2 reaches port programs spawned after the call, but not the C
+%% environment of the emulator, which is what the NIF sees. BINDIR is there
+%% because erlexec sets it. Check one of each so that both backends are covered.
+empty_env_t_() ->
+    [
+       ?_assertMatch({ok, [<<"\"gone\"">>]},
+                     jq:process_json(<<"$ENV.", ?ENV_CANARY, " // \"gone\"">>, <<"null">>))
+     , ?_assertMatch({ok, [<<"\"gone\"">>]},
+                     jq:process_json(<<"env.", ?ENV_CANARY, " // \"gone\"">>, <<"null">>))
+     , ?_assertMatch({ok, [<<"\"gone\"">>]},
+                     jq:process_json(<<"$ENV.BINDIR // \"gone\"">>, <<"null">>))
+     , ?_assertMatch({ok, [<<"\"gone\"">>]},
+                     jq:process_json(<<"env.BINDIR // \"gone\"">>, <<"null">>))
+     , ?_assertMatch({ok, [<<"0">>]}, jq:process_json(<<"$ENV | length">>, <<"null">>))
+     , ?_assertMatch({ok, [<<"0">>]}, jq:process_json(<<"env | length">>, <<"null">>))
+     , ?_assertMatch({ok, [<<"true">>]},
+                     jq:process_json(<<"[$ENV, $ENV, env] == [{}, {}, {}]">>, <<"null">>))
+     , ?_assertMatch({ok, [<<"1">>]}, jq:process_json(<<".a">>, <<"{\"a\":1}">>))
+    ].
+empty_env_test_() ->
+    {setup,
+     fun() ->
+             true = os:putenv(?ENV_CANARY, "canary"),
+             true = is_list(os:getenv("BINDIR")),
+             %% Port programs are spawned on demand after this.
+             application:stop(jq)
+     end,
+     fun(_) -> os:unsetenv(?ENV_CANARY) end,
+     wrap_setup_cleanup(empty_env_t_())}.
+
 include_t_() ->
     [
        ?_assertMatch({error, {jq_err_compile, _}}, jq:process_json(<<"include \"i_do_not_exist\";.">>, <<"1">>))

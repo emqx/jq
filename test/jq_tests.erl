@@ -44,6 +44,18 @@ empty_input_t_() ->
      , ?_assertMatch({ok,[<<"{}">>]}, jq:process_json(<<" ">>, <<"{}">>))].
 empty_input_test_() -> wrap_setup_cleanup(empty_input_t_()).
 
+no_more_inputs_t_() ->
+    Run =
+        fun() ->
+            {ok, _} = jq:process_json(<<"[range(3000)] | tojson">>, <<"null">>),
+            {jq:process_json(<<"try input catch .">>, <<"null">>),
+             jq:process_json(<<"[inputs]">>, <<"null">>),
+             jq:process_json(<<"[1 | debug]">>, <<"null">>)}
+        end,
+    Expected = {{ok, [<<"\"break\"">>]}, {ok, [<<"[]">>]}, {ok, [<<"[1]">>]}},
+    [?_assertEqual(lists:duplicate(20, Expected), [Run() || _ <- lists:seq(1, 20)])].
+no_more_inputs_test_() -> wrap_setup_cleanup(no_more_inputs_t_()).
+
 -define(ENV_CANARY, "JQ_TEST_ENV_CANARY").
 
 %% os:putenv/2 reaches port programs spawned after the call, but not the C

@@ -100,19 +100,19 @@ jobs:
         # The prebuilt file name carries the OTP major only, so one asset per
         # (version, OTP major, distro, arch) serves every OTP patch release.
         os: >-
-          ${{ fromJSON(github.event.inputs.linux_os || '["ubuntu24.04",
+          ${{ fromJSON(github.event.inputs.linux_os || '["ubuntu26.04", "ubuntu24.04",
           "ubuntu22.04", "ubuntu20.04", "debian13", "debian12", "debian11",
           "amzn2023", "el8", "el9", "el10"]') }}
         arch:
           - amd64
           - arm64
         builder:
-          - vsn: "6.2-3:1.15.7-26.2.5.14-1"
+          - vsn: "6.3-1:1.15.7-26.2.5.14-1"
             otp: "26.2.5.14-1"
-          - vsn: "6.2-3:1.18.3-27.3.4.2-9"
+          - vsn: "6.3-1:1.18.3-27.3.4.2-9"
             otp: "27.3.4.2-9"
-          - vsn: "6.2-3:1.19.1-28.5.0.7-3"
-            otp: "28.5.0.7-3"
+          - vsn: "6.3-1:1.19.1-28.5.0.7-7"
+            otp: "28.5.0.7-7"
 
     runs-on: ubuntu-24.04${{ matrix.arch == 'arm64' && '-arm' || '' }}
     container: ghcr.io/emqx/emqx-builder/${{ matrix.builder.vsn }}-${{ matrix.os }}
@@ -156,12 +156,12 @@ jobs:
           - amd64
           - arm64
         builder:
-          - vsn: "6.2-3:1.15.7-26.2.5.14-1"
+          - vsn: "6.3-1:1.15.7-26.2.5.14-1"
             otp: "26.2.5.14-1"
-          - vsn: "6.2-3:1.18.3-27.3.4.2-9"
+          - vsn: "6.3-1:1.18.3-27.3.4.2-9"
             otp: "27.3.4.2-9"
-          - vsn: "6.2-3:1.19.1-28.5.0.7-3"
-            otp: "28.5.0.7-3"
+          - vsn: "6.3-1:1.19.1-28.5.0.7-7"
+            otp: "28.5.0.7-7"
 
     runs-on: ubuntu-24.04${{ matrix.arch == 'arm64' && '-arm' || '' }}
 
